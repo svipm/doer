@@ -103,10 +103,18 @@ final class ShareViewController: UIViewController {
     }
 
     private func openURL(_ url: URL, completion: @escaping () -> Void) {
+        // Exactly-once teardown: a missing UIApplication / a host that never
+        // calls the open completion must not leave the share sheet hanging.
+        var completed = false
+        let finishOnce = {
+            guard !completed else { return }
+            completed = true
+            completion()
+        }
         var responder: UIResponder? = self
         while let current = responder {
             if let application = current as? UIApplication {
-                application.open(url, options: [:]) { _ in completion() }
+                application.open(url, options: [:]) { _ in finishOnce() }
                 return
             }
             // iOS 18+ / extension open via selector. The legacy selector has no
@@ -115,16 +123,20 @@ final class ShareViewController: UIViewController {
             let openSelector = NSSelectorFromString("openURL:")
             if current.responds(to: openSelector) {
                 current.perform(openSelector, with: url)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: completion)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: finishOnce)
                 return
             }
             responder = current.next
         }
         // Fallback: extensionContext open. Its completion is delivered on the
         // main thread — blocking here on a semaphore could never unblock, so
-        // the completion drives the teardown instead.
-        extensionContext?.open(url) { _ in
-            completion()
+        // the completion drives the teardown instead, with a timeout backstop
+        // for hosts that never call it.
+        if let context = extensionContext {
+            context.open(url) { _ in finishOnce() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: finishOnce)
+            return
         }
+        finishOnce()
     }
 }

@@ -14,7 +14,10 @@ final class CloudflareChallengeMinimizer {
 
     private(set) var minimizedController: CloudflareVerificationViewController?
     /// Tiny on-screen host the challenge web view is parked in while minimized.
-    private weak var hostView: UIView?
+    /// Strong on purpose: a forum switch can tear the old window down, and the
+    /// parked challenge must survive it (re-attached to the new key window on
+    /// the next shield interaction).
+    private var hostView: UIView?
 
     /// Called whenever the minimized set changes so hosts can sync the shield.
     var onChange: (() -> Void)?
@@ -72,6 +75,14 @@ final class CloudflareChallengeMinimizer {
         hostView?.subviews.forEach { $0.removeFromSuperview() }
         hostView?.removeFromSuperview()
         hostView = nil
+    }
+
+    /// Re-attach the parked host to the current key window (e.g. after a forum
+    /// switch tore the old overlay window down). A detached host would freeze
+    /// the challenge JS and leave a re-presented sheet without its web view.
+    func ensureHostAttached() {
+        guard let host = hostView, host.window == nil, let window = keyWindow() else { return }
+        window.addSubview(host)
     }
 
     private static func keyWindow() -> UIWindow? {

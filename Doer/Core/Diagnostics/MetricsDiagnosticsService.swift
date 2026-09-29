@@ -41,7 +41,9 @@ final class MetricsDiagnosticsService: NSObject {
         defer { fileLock.unlock() }
         guard let dir = diagnosticsDirectory() else { return }
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let url = dir.appendingPathComponent("\(kind)-\(stamp).json")
+        // MetricKit delivers arrays: several payloads can land in the same
+        // second, so a unique suffix keeps .atomic writes from clobbering.
+        let url = dir.appendingPathComponent("\(kind)-\(stamp)-\(UUID().uuidString.prefix(8)).json")
         try? json.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
 
         // Keep only the newest files per kind so the folder stays bounded.

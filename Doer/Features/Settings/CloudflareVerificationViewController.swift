@@ -236,7 +236,7 @@ final class CloudflareVerificationViewController: UIViewController {
     private let baseURL: URL
     private let challengeURL: URL
     private let autoDismissOnSuccess: Bool
-    private let onFinish: () -> Void
+    private var onFinish: () -> Void
     private var progressObservation: NSKeyValueObservation?
     private var didDetectClearance = false
     private var isCheckingClearance = false
@@ -476,6 +476,16 @@ final class CloudflareVerificationViewController: UIViewController {
         (navigationController ?? self).dismiss(animated: true)
     }
 
+    /// The forum origin this challenge belongs to (shield re-open check).
+    var challengeBaseURLString: String { baseURL.absoluteString }
+
+    /// Re-point the finish callback at whoever currently presents this
+    /// challenge (a forum switch can replace the original presenting
+    /// container while the challenge sits minimized).
+    func rebindOnFinish(_ onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
     /// Put the challenge web view back into this controller's layout after the
     /// minimized challenge is re-presented.
     func reattachWebViewAfterMinimization(_ webView: WKWebView) {
@@ -496,8 +506,11 @@ final class CloudflareVerificationViewController: UIViewController {
     func resumeFromMinimization() {
         guard isMinimizing else { return }
         isMinimizing = false
+        // On screen again: the user owns this sheet now, so the off-screen
+        // timeout would be dead code.
+        minimizeTimeoutTask?.cancel()
+        minimizeTimeoutTask = nil
         log("foreground resumed from minimize base=\(baseURL.absoluteString)")
-        startMinimizeTimeout()
     }
 
     /// A minimized challenge that never resolves must not be retained forever.
@@ -827,7 +840,7 @@ final class CloudflareVerificationViewController: UIViewController {
             ]
         )
         // A minimized sheet has no presenter to dismiss — release and tear down.
-        if isMinimizing || CloudflareChallengeMinimizer.shared.isMinimized {
+        if isMinimizing {
             finishMinimizedChallenge(reportsFailure: false)
             return
         }
@@ -1160,12 +1173,9 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         didFinishVerifiedNavigation = false
-        // A page actually started loading: this failure cycle is over, so a
-        // later blip gets the full retry ladder again.
-        if autoRetryAttempt > 0 {
-            autoRetryAttempt = 0
-            lastFailureHandledAt = nil
-        }
+        // Note: the retry ladder is NOT reset here. A load that commits and
+        // then dies (proxy drop mid-transfer) would otherwise restart the
+        // ladder on every cycle and never reach the exhausted state.
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

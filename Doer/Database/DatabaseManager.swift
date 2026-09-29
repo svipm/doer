@@ -34,10 +34,17 @@ final class DatabaseManager: Sendable {
             let backupURL = appSupport.appendingPathComponent("dexo.corrupt-\(Int(Date().timeIntervalSince1970)).sqlite")
             try? FileManager.default.removeItem(at: backupURL)
             try? FileManager.default.moveItem(at: dbURL, to: backupURL)
-            // GRDB also keeps WAL/SHM sidecars — remove them so the new pool
-            // does not try to recover from the broken database's journal.
+            // GRDB also keeps WAL/SHM sidecars. Move them along with the
+            // backup (instead of deleting) so un-checkpointed committed
+            // transactions stay recoverable, and the new pool cannot try to
+            // recover from the broken database's journal.
             for suffix in ["-wal", "-shm"] {
-                try? FileManager.default.removeItem(at: URL(fileURLWithPath: dbURL.path + suffix))
+                let sidecar = URL(fileURLWithPath: dbURL.path + suffix)
+                let backupSidecar = URL(fileURLWithPath: backupURL.path + suffix)
+                if FileManager.default.fileExists(atPath: sidecar.path) {
+                    try? FileManager.default.removeItem(at: backupSidecar)
+                    try? FileManager.default.moveItem(at: sidecar, to: backupSidecar)
+                }
             }
             do {
                 pool = try openAndMigrate()

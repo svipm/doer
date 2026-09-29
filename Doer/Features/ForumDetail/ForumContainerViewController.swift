@@ -785,12 +785,33 @@ final class ForumContainerViewController: UIViewController, AuthGating {
 
     @objc private func cloudflareShieldTapped() {
         // A minimized challenge keeps running off-screen — reopen it instead of
-        // starting a second one.
-        if let minimized = CloudflareChallengeMinimizer.shared.takeForPresentation() {
+        // starting a second one. Every fallible check happens BEFORE releasing
+        // it from the minimizer: a failed check used to drop the controller
+        // (deallocating the live challenge) and leave the presented-latch
+        // stuck, which locked the shield out until the next recovery notice.
+        if let minimized = CloudflareChallengeMinimizer.shared.minimizedController {
+            let challengeBase = minimized.challengeBaseURLString
+            guard normalizedBaseURL(challengeBase) == normalizedBaseURL(forum.baseURL) else {
+                logCloudflareState("shield tap ignored: minimized challenge belongs to another forum base=\(challengeBase)")
+                return
+            }
+            guard let presenter = topMostPresenter(), !presenter.isBeingDismissed else {
+                logCloudflareState("shield tap deferred: no presenter for minimized challenge")
+                return
+            }
             logCloudflareState("shield tapped; re-presenting minimized challenge")
             cloudflareAutoPresentBlockedUntil = nil
+            CloudflareChallengeMinimizer.shared.release(minimized)
             minimized.resumeFromMinimization()
-            presentMinimizedCloudflareVerification(minimized)
+            minimized.rebindOnFinish { [weak self] in
+                CloudflareBackgroundVerificationService.shared.endForegroundVerification(baseURL: challengeBase)
+                self?.handleCloudflareVerificationClosed()
+            }
+            let nav = UINavigationController(rootViewController: minimized)
+            CloudflareVerificationViewController.applyCompactSheetPresentation(to: nav)
+            isPresentingCloudflareVerification = true
+            setCloudflareShieldButtonVisible(false, animated: true)
+            presenter.present(nav, animated: true)
             return
         }
         let baseURL = pendingCloudflareBaseURL
@@ -807,19 +828,10 @@ final class ForumContainerViewController: UIViewController, AuthGating {
         )
     }
 
-    private func presentMinimizedCloudflareVerification(_ controller: CloudflareVerificationViewController) {
-        guard !isPresentingCloudflareVerification else { return }
-        guard let presenter = topMostPresenter(), !presenter.isBeingDismissed else { return }
-        let nav = UINavigationController(rootViewController: controller)
-        CloudflareVerificationViewController.applyCompactSheetPresentation(to: nav)
-        isPresentingCloudflareVerification = true
-        setCloudflareShieldButtonVisible(false, animated: true)
-        presenter.present(nav, animated: true)
-    }
-
     /// While a challenge runs minimized, the shield is the only way back to it.
     private func syncCloudflareShieldWithMinimizer() {
         guard CloudflareChallengeMinimizer.shared.isMinimized else { return }
+        CloudflareChallengeMinimizer.shared.ensureHostAttached()
         if pendingCloudflareBaseURL == nil,
            let baseURL = URL(string: forum.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) {
             pendingCloudflareBaseURL = baseURL

@@ -783,8 +783,10 @@ enum AvatarCachePolicy {
         if let index = parts.firstIndex(of: "user_avatar"), index + 3 < parts.count {
             return Int(parts[index + 3])
         }
+        // Real letter avatar shape: /letter_avatar_proxy/v4/<letter>/<color>/<size>.png
+        // — the size is the file name, not the segment right after the marker.
         if let index = parts.firstIndex(of: "letter_avatar_proxy"), parts.count > index + 1 {
-            return Int(parts[index + 1])
+            return Int(parts.last?.replacingOccurrences(of: ".png", with: "") ?? "")
         }
         return nil
     }
