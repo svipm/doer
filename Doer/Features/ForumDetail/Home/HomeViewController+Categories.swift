@@ -7,7 +7,12 @@ extension HomeViewController {
     func startIncomingTopicsPolling() {
         stopIncomingTopicsPolling()
         pollIncomingTopics()
-        let timer = Timer(timeInterval: 30, target: self, selector: #selector(pollIncomingTopics), userInfo: nil, repeats: true)
+        // Block API with a weak capture: a target-selector timer retained the
+        // controller until viewWillDisappear, which never fires when the home
+        // stack is replaced wholesale.
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            self?.pollIncomingTopics()
+        }
         RunLoop.main.add(timer, forMode: .common)
         incomingTopicsPollTimer = timer
     }

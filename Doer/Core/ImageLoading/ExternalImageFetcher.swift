@@ -40,7 +40,14 @@ enum ExternalImageFetcher {
 
     private static let maxConcurrentNetwork = 6
     private static let networkSemaphore = DispatchSemaphore(value: maxConcurrentNetwork)
-    private static let networkQueue = DispatchQueue(label: "com.naine.doer.external-image", qos: .userInitiated)
+    // Concurrent queue: a block can wait up to 25s on the semaphore, and on a
+    // serial queue that wait head-of-line-blocked every later load (including
+    // disk-cache hits). The semaphore alone still bounds network concurrency.
+    private static let networkQueue = DispatchQueue(
+        label: "com.naine.doer.external-image",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
 
     /// If an inflight batch is older than this, drop it so later loads are not wedged forever.
     private static let inflightStaleInterval: TimeInterval = 40

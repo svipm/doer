@@ -231,7 +231,8 @@ final class DiscourseAPI {
 
         #if DEBUG
         if let data = response.data, let body = String(data: data, encoding: .utf8) {
-            print("[DiscourseAPI] \(route.method.rawValue) \(url)\n\(body)")
+            // Bodies can embed emails / private content; cap what lands in the console.
+            print("[DiscourseAPI] \(route.method.rawValue) \(url)\n\(body.prefix(2_000))")
         }
         #endif
 

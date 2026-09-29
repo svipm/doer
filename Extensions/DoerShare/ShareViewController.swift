@@ -9,6 +9,9 @@ final class ShareViewController: UIViewController {
         Task { await processShare() }
     }
 
+    /// Deep-link extraction only needs a URL / title snippet — never a whole page.
+    private static let maximumCollectedTextLength = 65_536
+
     private func processShare() async {
         let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
         var collectedText = ""
@@ -21,8 +24,9 @@ final class ShareViewController: UIViewController {
                         collectedURL = url
                     }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                    if let text = try? await loadText(provider) {
-                        collectedText += text
+                    if let text = try? await loadText(provider), !text.isEmpty,
+                       collectedText.count < Self.maximumCollectedTextLength {
+                        collectedText += text.prefix(Self.maximumCollectedTextLength - collectedText.count)
                         collectedText += "\n"
                     }
                 }
@@ -31,8 +35,11 @@ final class ShareViewController: UIViewController {
 
         let raw = collectedURL?.absoluteString ?? collectedText
         let deepLink = makeDeepLink(from: raw) ?? URL(string: "doer://read-later")!
-        _ = openURL(deepLink)
-        extensionContext?.completeRequest(returningItems: nil)
+        // Complete the request only after the open call has been handed off —
+        // tearing the extension down first could drop the open.
+        openURL(deepLink) { [weak self] in
+            self?.extensionContext?.completeRequest(returningItems: nil)
+        }
     }
 
     private func makeDeepLink(from raw: String) -> URL? {
@@ -95,31 +102,29 @@ final class ShareViewController: UIViewController {
         }
     }
 
-    @discardableResult
-    private func openURL(_ url: URL) -> Bool {
+    private func openURL(_ url: URL, completion: @escaping () -> Void) {
         var responder: UIResponder? = self
         while let current = responder {
             if let application = current as? UIApplication {
-                application.open(url, options: [:], completionHandler: nil)
-                return true
+                application.open(url, options: [:]) { _ in completion() }
+                return
             }
-            // iOS 18+ / extension open via selector
-            let openSelector = NSSelectorFromString("openURL:options:completionHandler:")
-            let legacySelector = NSSelectorFromString("openURL:")
+            // iOS 18+ / extension open via selector. The legacy selector has no
+            // completion — give the host app a beat to handle the open before
+            // the extension tears down.
+            let openSelector = NSSelectorFromString("openURL:")
             if current.responds(to: openSelector) {
-                current.perform(legacySelector, with: url)
-                return true
+                current.perform(openSelector, with: url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: completion)
+                return
             }
             responder = current.next
         }
-        // Fallback: extensionContext open (works for some hosts)
-        var opened = false
-        let sem = DispatchSemaphore(value: 0)
-        extensionContext?.open(url) { success in
-            opened = success
-            sem.signal()
+        // Fallback: extensionContext open. Its completion is delivered on the
+        // main thread — blocking here on a semaphore could never unblock, so
+        // the completion drives the teardown instead.
+        extensionContext?.open(url) { _ in
+            completion()
         }
-        _ = sem.wait(timeout: .now() + 1.5)
-        return opened
     }
 }

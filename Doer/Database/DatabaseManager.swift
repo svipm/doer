@@ -7,20 +7,50 @@ final class DatabaseManager: Sendable {
     private let dbPool: DatabasePool
 
     private init() {
-        do {
-            // Prefer bootstrap path so a file masquerading as Library/Application Support
-            // is repaired before GRDB opens the pool (avoids NSCocoaErrorDomain 512 / ENOTDIR).
-            let appSupport = AppStorageBootstrap.applicationSupportDirectoryURL()
-            // Legacy filename — renaming would orphan existing forum records.
-            let dbURL = appSupport.appendingPathComponent("dexo.sqlite")
-            dbPool = try DatabasePool(path: dbURL.path)
-            try migrator.migrate(dbPool)
-        } catch {
-            fatalError("Database initialization failed: \(error)")
+        // Prefer bootstrap path so a file masquerading as Library/Application Support
+        // is repaired before GRDB opens the pool (avoids NSCocoaErrorDomain 512 / ENOTDIR).
+        let appSupport = AppStorageBootstrap.applicationSupportDirectoryURL()
+        // Legacy filename — renaming would orphan existing forum records.
+        let dbURL = appSupport.appendingPathComponent("dexo.sqlite")
+
+        func openAndMigrate() throws -> DatabasePool {
+            let pool = try DatabasePool(path: dbURL.path)
+            try Self.migrator.migrate(pool)
+            return pool
         }
+
+        let pool: DatabasePool
+        do {
+            pool = try openAndMigrate()
+        } catch {
+            // A corrupt or half-migrated database must not crash-loop the app
+            // on every launch (fatalError here used to make the only recovery
+            // deleting the app, which also loses everything else). Park the
+            // broken file beside the original and start fresh; the user keeps
+            // a recoverable copy instead of a boot loop.
+            #if DEBUG
+            print("[DatabaseManager] init failed, recovering fresh: \(error)")
+            #endif
+            let backupURL = appSupport.appendingPathComponent("dexo.corrupt-\(Int(Date().timeIntervalSince1970)).sqlite")
+            try? FileManager.default.removeItem(at: backupURL)
+            try? FileManager.default.moveItem(at: dbURL, to: backupURL)
+            // GRDB also keeps WAL/SHM sidecars — remove them so the new pool
+            // does not try to recover from the broken database's journal.
+            for suffix in ["-wal", "-shm"] {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: dbURL.path + suffix))
+            }
+            do {
+                pool = try openAndMigrate()
+            } catch {
+                // Even a fresh pool failed (disk full / sandbox broken) — there
+                // is nothing recoverable to do here.
+                fatalError("Database initialization failed: \(error)")
+            }
+        }
+        dbPool = pool
     }
 
-    private var migrator: DatabaseMigrator {
+    private static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1") { db in

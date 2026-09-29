@@ -77,7 +77,9 @@ final class BookmarksViewModel: DoerObservableObject {
     }
 
     func loadMore() async {
-        guard canLoadMore, !isLoading, !isLoadingMore else { return }
+        // A failed page stops auto-retry until reload() clears the message —
+        // otherwise willDisplay near the bottom fires a request per layout pass.
+        guard canLoadMore, !isLoading, !isLoadingMore, loadMoreErrorMessage == nil else { return }
         guard let username, !username.isEmpty else { return }
 
         isLoadingMore = true
@@ -87,9 +89,13 @@ final class BookmarksViewModel: DoerObservableObject {
         do {
             let list = try await api.fetchBookmarks(username: username, page: nextPage)
             let existingIds = Set(bookmarks.map(\.id))
-            bookmarks.append(contentsOf: Self.uniqueBookmarks(list.bookmarks).filter { !existingIds.contains($0.id) })
+            let newItems = Self.uniqueBookmarks(list.bookmarks).filter { !existingIds.contains($0.id) }
+            bookmarks.append(contentsOf: newItems)
             currentPage = nextPage
-            canLoadMore = Self.hasMorePages(list)
+            // A page that yields nothing new means the server has no more
+            // distinct rows for this list — stop before it becomes an
+            // empty-page loop.
+            canLoadMore = !newItems.isEmpty && Self.hasMorePages(list)
         } catch {
             if AuthSessionInvalidationPolicy.shouldInvalidateWebSession(error: error, baseURL: api.baseURL) {
                 requiresLogin = true

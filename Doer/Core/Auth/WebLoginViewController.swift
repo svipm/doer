@@ -339,11 +339,21 @@ final class WebLoginViewController: UIViewController {
             MitmTrust.handle(challenge, completionHandler: completionHandler)
         }
 
+        /// Strict domain match for cookie capture. A loose `contains` would
+        /// also accept `xlinux.do.evil.com` when the target is `linux.do`.
+        /// Mirrors WebCookieStore.domainMatches: exact host or dot-suffix.
+        nonisolated private func domainMatches(_ cookieDomain: String) -> Bool {
+            let domain = cookieDomain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            let host = targetHost.lowercased()
+            guard !domain.isEmpty, !host.isEmpty else { return false }
+            return host == domain || host.hasSuffix(".\(domain)")
+        }
+
         func collectAndFireIfPossible(from webView: WKWebView, force: Bool = false) {
             guard !didCallback else { return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self, !self.didCallback else { return }
-                let relevant = cookies.filter { $0.domain.contains(self.targetHost) }
+                let relevant = cookies.filter { self.domainMatches($0.domain) }
                 let hasSession = relevant.contains { $0.name == "_t" }
                 guard hasSession || force else { return }
                 self.didCallback = true
@@ -359,7 +369,7 @@ final class WebLoginViewController: UIViewController {
                 guard let self else { return }
                 let cookies = await cookieStore.allCookies()
                 guard !self.didCallback else { return }
-                let relevant = cookies.filter { $0.domain.contains(self.targetHost) }
+                let relevant = cookies.filter { self.domainMatches($0.domain) }
                 let hasSession = relevant.contains { $0.name == "_t" }
                 guard hasSession else { return }
                 self.didCallback = true

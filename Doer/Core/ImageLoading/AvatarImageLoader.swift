@@ -748,7 +748,14 @@ enum AvatarImageLoader {
 /// chrome does not each hit Cloudflare for the same person.
 enum AvatarCachePolicy {
     static func shouldSkipNetworkAfterUserCacheHit(cachedURL: URL, requestedURL: URL) -> Bool {
-        avatarIdentity(cachedURL) == avatarIdentity(requestedURL)
+        guard avatarIdentity(cachedURL) == avatarIdentity(requestedURL) else { return false }
+        // Same person at an equal-or-larger cached size: reuse freely. A cached
+        // SMALLER avatar would blur when scaled up — fetch the bigger one
+        // instead (the cached image still paints immediately while it loads).
+        guard let cachedSize = avatarPixelSize(cachedURL), let requestedSize = avatarPixelSize(requestedURL) else {
+            return true
+        }
+        return cachedSize >= requestedSize
     }
 
     static func avatarIdentity(_ url: URL) -> String {
@@ -767,6 +774,19 @@ enum AvatarCachePolicy {
             return "\(host.lowercased())\(url.path.lowercased())"
         }
         return url.absoluteString.lowercased()
+    }
+
+    /// The `{size}` segment of Discourse avatar URLs (`/user_avatar/<forum>/<user>/<size>/<file>`,
+    /// `/letter_avatar_proxy/<size>/...`). nil when the URL carries no size.
+    static func avatarPixelSize(_ url: URL) -> Int? {
+        let parts = url.path.split(separator: "/").map(String.init)
+        if let index = parts.firstIndex(of: "user_avatar"), index + 3 < parts.count {
+            return Int(parts[index + 3])
+        }
+        if let index = parts.firstIndex(of: "letter_avatar_proxy"), parts.count > index + 1 {
+            return Int(parts[index + 1])
+        }
+        return nil
     }
 }
 

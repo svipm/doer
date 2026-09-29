@@ -8,6 +8,7 @@ final class ReadLaterViewController: ObservableViewController {
     private var usersById: [Int: DiscourseTopicList.User] = [:]
     private var categoriesById: [Int: DiscourseCategory] = [:]
     private var isLoading = false
+    private var isReloading = false
     private var errorMessage: String?
     private var observer: NSObjectProtocol?
     private var cloudflareObserver: NSObjectProtocol?
@@ -174,6 +175,16 @@ final class ReadLaterViewController: ObservableViewController {
     }
 
     private func reload(forceNetwork: Bool) async {
+        // Multiple triggers fire together (notification + viewWillAppear +
+        // pull-to-refresh); coalesce them into one hydration pass so the same
+        // batches are not fetched concurrently.
+        if isReloading {
+            refreshControl.endRefreshing()
+            return
+        }
+        isReloading = true
+        defer { isReloading = false }
+
         let username = AuthManager.shared.username(for: api.baseURL)
         entries = TopicReadLaterStore.shared.entries(baseURL: api.baseURL, username: username)
 

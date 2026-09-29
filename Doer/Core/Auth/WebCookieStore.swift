@@ -834,7 +834,9 @@ final class WebCookieStore {
 
         do {
             let data = try JSONEncoder().encode(records)
-            try data.write(to: filePath, options: .atomic)
+            // The jar holds forum session tickets (and cookies synced from the
+            // in-app browser); keep it out of unbacked-up device states.
+            try data.write(to: filePath, options: [.atomic, .completeFileProtection])
         } catch {
             DohDebugLog.record("cookie save failed: \(error.localizedDescription)", subsystem: "Auth")
         }

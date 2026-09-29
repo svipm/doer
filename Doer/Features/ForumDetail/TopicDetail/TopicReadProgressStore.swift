@@ -12,6 +12,12 @@ final class TopicReadProgressStore {
     private let storageKey = "topic.read_progress.v1"
     /// Explicit mark-unread overrides (may be 0 or lower than server last_read).
     private let overrideKey = "topic.read_progress.override.v1"
+    /// In-memory mirrors — the scroll path records many times per second, and a
+    /// full load-modify-store of a 2 000-entry dictionary per tick showed up as
+    /// main-thread spikes on long topics.
+    private var mapCache: [String: Int]?
+    private var overrideCache: [String: Int]?
+    private var flushTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -19,10 +25,10 @@ final class TopicReadProgressStore {
 
     func highestSeen(topicId: Int, baseURL: String, username: String?) -> Int {
         let k = key(topicId: topicId, baseURL: baseURL, username: username)
-        if let override = loadOverrides()[k] {
+        if let override = currentOverrides()[k] {
             return override
         }
-        return loadMap()[k] ?? 0
+        return currentMap()[k] ?? 0
     }
 
     /// Records a new high-water mark (monotonic). Clears any mark-unread override.
@@ -31,7 +37,7 @@ final class TopicReadProgressStore {
         let k = key(topicId: topicId, baseURL: baseURL, username: username)
         clearOverride(for: k, notify: false)
 
-        var map = loadMap()
+        var map = currentMap()
         let previous = map[k] ?? 0
         guard highestSeen > previous else { return }
         map[k] = highestSeen
@@ -40,7 +46,8 @@ final class TopicReadProgressStore {
             let trimmed = map.sorted { $0.value > $1.value }.prefix(1_500)
             map = Dictionary(uniqueKeysWithValues: trimmed.map { ($0.key, $0.value) })
         }
-        defaults.set(map, forKey: storageKey)
+        mapCache = map
+        scheduleFlush()
         notifyChanged(topicId: topicId, baseURL: baseURL, highestSeen: highestSeen)
     }
 
@@ -67,22 +74,25 @@ final class TopicReadProgressStore {
     func forceSet(topicId: Int, highestSeen: Int, baseURL: String, username: String?) {
         guard topicId > 0 else { return }
         let k = key(topicId: topicId, baseURL: baseURL, username: username)
-        var overrides = loadOverrides()
+        var overrides = currentOverrides()
         overrides[k] = max(0, highestSeen)
         if overrides.count > 2_000 {
             let trimmed = overrides.sorted { $0.value > $1.value }.prefix(1_500)
             overrides = Dictionary(uniqueKeysWithValues: trimmed.map { ($0.key, $0.value) })
         }
+        overrideCache = overrides
+        // User-initiated (rare) — commit immediately.
         defaults.set(overrides, forKey: overrideKey)
 
         // Keep monotonic map coherent when stepping back.
-        var map = loadMap()
+        var map = currentMap()
         if highestSeen <= 0 {
             map.removeValue(forKey: k)
         } else {
             map[k] = highestSeen
         }
-        defaults.set(map, forKey: storageKey)
+        mapCache = map
+        scheduleFlush()
         notifyChanged(topicId: topicId, baseURL: baseURL, highestSeen: max(0, highestSeen))
     }
 
@@ -94,10 +104,10 @@ final class TopicReadProgressStore {
         username: String?
     ) -> Int {
         let k = key(topicId: topicId, baseURL: baseURL, username: username)
-        if let override = loadOverrides()[k] {
+        if let override = currentOverrides()[k] {
             return override
         }
-        return max(serverLastRead ?? 0, loadMap()[k] ?? 0)
+        return max(serverLastRead ?? 0, currentMap()[k] ?? 0)
     }
 
     func applyLocalProgress(
@@ -106,10 +116,10 @@ final class TopicReadProgressStore {
         username: String?
     ) -> DiscourseTopicList.Topic {
         let k = key(topicId: topic.id, baseURL: baseURL, username: username)
-        if let override = loadOverrides()[k] {
+        if let override = currentOverrides()[k] {
             return topic.forcingReadProgress(highestSeen: override)
         }
-        let local = loadMap()[k] ?? 0
+        let local = currentMap()[k] ?? 0
         guard local > 0 else { return topic }
         let server = topic.lastReadPostNumber ?? 0
         guard local > server || topic.unseen else { return topic }
@@ -117,9 +127,23 @@ final class TopicReadProgressStore {
     }
 
     private func clearOverride(for key: String, notify: Bool) {
-        var overrides = loadOverrides()
+        var overrides = currentOverrides()
         guard overrides.removeValue(forKey: key) != nil else { return }
+        overrideCache = overrides
         defaults.set(overrides, forKey: overrideKey)
+    }
+
+    /// Scroll-path writes fire many times per second; coalesce them into one
+    /// UserDefaults commit per debounce window instead of a full-map rewrite
+    /// on every tick.
+    private func scheduleFlush() {
+        guard flushTask == nil else { return }
+        flushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            self.flushTask = nil
+            self.defaults.set(self.currentMap(), forKey: self.storageKey)
+        }
     }
 
     private func notifyChanged(topicId: Int, baseURL: String, highestSeen: Int) {
@@ -134,12 +158,18 @@ final class TopicReadProgressStore {
         )
     }
 
-    private func loadOverrides() -> [String: Int] {
-        (defaults.dictionary(forKey: overrideKey) as? [String: Int]) ?? [:]
+    private func currentOverrides() -> [String: Int] {
+        if let overrideCache { return overrideCache }
+        let overrides = (defaults.dictionary(forKey: overrideKey) as? [String: Int]) ?? [:]
+        overrideCache = overrides
+        return overrides
     }
 
-    private func loadMap() -> [String: Int] {
-        (defaults.dictionary(forKey: storageKey) as? [String: Int]) ?? [:]
+    private func currentMap() -> [String: Int] {
+        if let mapCache { return mapCache }
+        let map = (defaults.dictionary(forKey: storageKey) as? [String: Int]) ?? [:]
+        mapCache = map
+        return map
     }
 
     private func key(topicId: Int, baseURL: String, username: String?) -> String {
