@@ -28,6 +28,24 @@ struct NewAPICheckInShortcuts: AppShortcutsProvider {
             shortTitle: "NewAPI 签到",
             systemImageName: "checkmark.circle.fill"
         )
+        AppShortcut(
+            intent: OpenReadLaterIntent(),
+            phrases: [
+                "用 \(.applicationName) 打开稍后读",
+                "打开 \(.applicationName) 稍后读",
+            ],
+            shortTitle: "稍后读",
+            systemImageName: "bookmark"
+        )
+        AppShortcut(
+            intent: OpenNotificationsIntent(),
+            phrases: [
+                "用 \(.applicationName) 打开通知",
+                "打开 \(.applicationName) 通知",
+            ],
+            shortTitle: "通知",
+            systemImageName: "bell"
+        )
     }
 }
 #endif

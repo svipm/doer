@@ -21,6 +21,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         BackgroundNotificationRefreshService.shared.scheduleIfNeeded()
         NewAPICheckInBackgroundService.shared.register()
         NewAPICheckInBackgroundService.shared.scheduleNextRun()
+        MetricsDiagnosticsService.shared.start()
         UNUserNotificationCenter.current().delegate = self
         APNsPushRegistration.register()
         MitmTrust.installWKWebViewHook()
