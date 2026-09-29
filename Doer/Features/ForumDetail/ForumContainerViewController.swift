@@ -1110,14 +1110,10 @@ final class ForumContainerViewController: UIViewController, AuthGating {
                 self?.handleCloudflareVerificationClosed()
             }
             let nav = UINavigationController(rootViewController: vc)
-            nav.modalPresentationStyle = .pageSheet
-            // Swipe-dismiss during Turnstile left API/images still challenged.
-            nav.isModalInPresentation = true
-            if let sheet = nav.sheetPresentationController {
-                sheet.detents = [.large()]
-                sheet.prefersGrabberVisible = true
-                sheet.preferredCornerRadius = 20
-            }
+            // Compact window instead of a full-page takeover: the challenge
+            // must stay on-screen (CF checks visibility/focus), and managed
+            // challenges usually self-resolve there and auto-dismiss.
+            CloudflareVerificationViewController.applyCompactSheetPresentation(to: nav)
             presenter.present(nav, animated: true)
             self.setCloudflareShieldButtonVisible(false, animated: true)
         }

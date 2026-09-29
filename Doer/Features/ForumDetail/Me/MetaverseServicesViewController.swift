@@ -820,7 +820,7 @@ final class MetaverseServicesViewController: UITableViewController {
             }
         }
         let navigation = UINavigationController(rootViewController: verifier)
-        navigation.modalPresentationStyle = .pageSheet
+        CloudflareVerificationViewController.applyCompactSheetPresentation(to: navigation)
         present(navigation, animated: true)
     }
 

@@ -984,3 +984,37 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
         return nil
     }
 }
+
+// MARK: - Presentation
+
+extension CloudflareVerificationViewController {
+    /// Compact challenge window.
+    ///
+    /// Cloudflare's challenge JS (and Turnstile) checks visibility and focus,
+    /// so the page must run in a real, on-screen web view — a detached or
+    /// hidden one cannot pass and only delays the user. A half-height sheet
+    /// keeps the interruption small instead of taking over the whole page, and
+    /// managed challenges usually resolve without a tap, after which the sheet
+    /// auto-dismisses (`autoDismissOnSuccess`).
+    static func applyCompactSheetPresentation(to navigation: UINavigationController) {
+        navigation.modalPresentationStyle = .pageSheet
+        // Swipe-dismiss mid-Turnstile left API/images still challenged.
+        navigation.isModalInPresentation = true
+        guard let sheet = navigation.sheetPresentationController else { return }
+        if #available(iOS 16.0, *) {
+            let compact = UISheetPresentationController.Detent.Identifier(rawValue: "cloudflare.compact")
+            sheet.detents = [
+                .custom(identifier: compact) { context in
+                    min(380, context.maximumDetentValue)
+                },
+                .large(),
+            ]
+            sheet.selectedDetentIdentifier = compact
+        } else {
+            sheet.detents = [.medium, .large]
+            sheet.selectedDetentIdentifier = .medium
+        }
+        sheet.prefersGrabberVisible = true
+        sheet.preferredCornerRadius = 20
+    }
+}

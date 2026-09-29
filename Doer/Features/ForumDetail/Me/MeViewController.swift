@@ -751,7 +751,7 @@ final class MeViewController: ObservableViewController {
                     self?.handleBalanceServiceTap(service)
                 }
                 let nav = UINavigationController(rootViewController: verifier)
-                nav.modalPresentationStyle = .pageSheet
+                CloudflareVerificationViewController.applyCompactSheetPresentation(to: nav)
                 self.present(nav, animated: true)
             } catch {
                 presentedFollowUp = true
