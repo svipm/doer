@@ -22,6 +22,12 @@ XCODEBUILD_ARGS=(
   DEVELOPMENT_TEAM=
   CURRENT_PROJECT_VERSION="${CURRENT_PROJECT_VERSION:-1}"
   COMPILER_INDEX_STORE_ENABLE=NO
+  # Release defaults to whole-module optimization; the Doer app module is now
+  # large enough that its single swift-frontend process exceeds the hosted
+  # macOS runner's memory and gets silently OOM-killed (no diagnostics, death
+  # right after `Ld DohProxy.o`). Per-file compilation keeps -O optimization
+  # with a much lower peak footprint.
+  SWIFT_COMPILATION_MODE=incremental
 )
 
 echo "==> Building Doer"
