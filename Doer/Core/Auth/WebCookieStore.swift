@@ -441,7 +441,9 @@ final class WebCookieStore {
         // Rebased onto the real site the cookie should keep its JS opacity.
         // The loopback mirror intentionally leaves it off (challenge page).
         if preserveHTTPOnly && source.isHTTPOnly {
-            props[.httpOnly] = "TRUE"
+            // `HTTPCookiePropertyKey` has no static member for this; CFNetwork
+            // honors the raw "HttpOnly" attribute key in cookie properties.
+            props[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
         }
         return HTTPCookie(properties: props)
     }
