@@ -258,12 +258,21 @@ final class CloudflareVerificationViewController: UIViewController {
     private var autoRetryAttempt = 0
     private var autoRetryTask: Task<Void, Never>?
     private var lastFailureHandledAt: Date?
-    private static let maxAutoRetryAttempts = 3
+    /// Minimized on purpose: the sheet is dismissed but this controller is kept
+    /// alive (and loading) by `CloudflareChallengeMinimizer`.
+    private var isMinimizing = false
+    private var minimizeTimeoutTask: Task<Void, Never>?
+    private static let maxAutoRetryAttempts = 4
+    /// The manual reload button usually needs a couple of taps a few seconds
+    /// apart; the ladder mirrors that spacing instead of firing too fast.
     private static let autoRetryDelaysNanoseconds: [UInt64] = [
-        1_200_000_000,
-        2_500_000_000,
-        5_000_000_000,
+        1_500_000_000,
+        3_000_000_000,
+        6_000_000_000,
+        10_000_000_000,
     ]
+    /// A minimized challenge that never resolves must not be retained forever.
+    private static let minimizeTimeout: UInt64 = 5 * 60 * 1_000_000_000
 
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
@@ -342,6 +351,7 @@ final class CloudflareVerificationViewController: UIViewController {
         verificationCheckTask?.cancel()
         failureCleanupTask?.cancel()
         autoRetryTask?.cancel()
+        minimizeTimeoutTask?.cancel()
         if isCookieObserverRegistered {
             webView.configuration.websiteDataStore.httpCookieStore.remove(self)
         }
@@ -351,11 +361,22 @@ final class CloudflareVerificationViewController: UIViewController {
         super.viewDidLoad()
         title = String(localized: "cloudflare.verify.title")
         view.backgroundColor = .systemBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
+        let closeItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
             action: #selector(closeTapped)
         )
+        let minimizeItem = UIBarButtonItem(
+            image: UIImage(systemName: "arrow.down.right.and.arrow.up.left"),
+            style: .plain,
+            target: self,
+            action: #selector(minimizeTapped)
+        )
+        minimizeItem.accessibilityLabel = String(
+            localized: "cloudflare.verify.minimize",
+            defaultValue: "最小化（后台继续验证）"
+        )
+        navigationItem.leftBarButtonItems = [closeItem, minimizeItem]
         navigationItem.rightBarButtonItems = [
             UIBarButtonItem(
                 title: String(localized: "weblogin.done"),
@@ -427,6 +448,9 @@ final class CloudflareVerificationViewController: UIViewController {
             || navigationController?.isBeingDismissed == true
             || isMovingFromParent
         guard wasDismissed else { return }
+        // Minimized on purpose: keep the web view loading and the clearance
+        // polling alive off-screen; teardown happens on completion/timeout.
+        if isMinimizing { return }
         isClosing = true
         if didDetectClearance {
             notifyFinishIfNeeded()
@@ -437,6 +461,69 @@ final class CloudflareVerificationViewController: UIViewController {
             await self.ensureFailureCleanup().value
             self.notifyFinishIfNeeded()
         }
+    }
+
+    /// Dismiss the sheet but keep this controller loading off-screen. The
+    /// challenge usually completes on its own; the shield re-opens it.
+    @objc private func minimizeTapped() {
+        guard !isFinishing, !didDetectClearance, !isMinimizing else { return }
+        isMinimizing = true
+        log("foreground minimized base=\(baseURL.absoluteString)")
+        CloudflareChallengeMinimizer.shared.minimize(self)
+        startMinimizeTimeout()
+        (navigationController ?? self).dismiss(animated: true)
+    }
+
+    /// Called when a minimized challenge is brought back on screen: the sheet
+    /// owns its lifecycle again, so a later close runs the normal teardown.
+    func resumeFromMinimization() {
+        guard isMinimizing else { return }
+        isMinimizing = false
+        log("foreground resumed from minimize base=\(baseURL.absoluteString)")
+        startMinimizeTimeout()
+    }
+
+    /// A minimized challenge that never resolves must not be retained forever.
+    private func startMinimizeTimeout() {
+        minimizeTimeoutTask?.cancel()
+        minimizeTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.minimizeTimeout)
+            guard let self, !Task.isCancelled, self.isMinimizing, !self.didDetectClearance else { return }
+            self.log("foreground minimized challenge timed out base=\(self.baseURL.absoluteString)")
+            self.finishMinimizedChallenge(reportsFailure: true)
+        }
+    }
+
+    /// Tear the off-screen challenge down. `reportsFailure` also surfaces the
+    /// failure state before closing so the caller can retry deliberately.
+    @MainActor
+    private func finishMinimizedChallenge(reportsFailure: Bool) {
+        minimizeTimeoutTask?.cancel()
+        minimizeTimeoutTask = nil
+        CloudflareChallengeMinimizer.shared.release(self)
+        isMinimizing = false
+        isFinishing = true
+        isClosing = true
+        preparationGeneration += 1
+        preparationTask?.cancel()
+        preparationTask = nil
+        verificationCheckTask?.cancel()
+        verificationCheckTask = nil
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        if isCookieObserverRegistered {
+            webView.configuration.websiteDataStore.httpCookieStore.remove(self)
+            isCookieObserverRegistered = false
+        }
+        if reportsFailure {
+            updateStatus(
+                text: String(localized: "cloudflare.verify.load_failed"),
+                symbolName: "exclamationmark.triangle.fill",
+                color: .systemRed
+            )
+        }
+        notifyFinishIfNeeded()
     }
 
     @objc private func closeTapped() {
@@ -722,6 +809,11 @@ final class CloudflareVerificationViewController: UIViewController {
                 DiscourseAPI.cloudflareBaseURLUserInfoKey: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
             ]
         )
+        // A minimized sheet has no presenter to dismiss — release and tear down.
+        if isMinimizing || CloudflareChallengeMinimizer.shared.isMinimized {
+            finishMinimizedChallenge(reportsFailure: false)
+            return
+        }
         guard autoDismissOnSuccess else { return }
         isFinishing = true
         navigationItem.rightBarButtonItem?.isEnabled = false
@@ -921,41 +1013,74 @@ final class CloudflareVerificationViewController: UIViewController {
         }
         lastFailureHandledAt = now
 
-        if autoRetryAttempt < Self.maxAutoRetryAttempts {
-            let attemptIndex = autoRetryAttempt
-            autoRetryAttempt += 1
-            let delay = Self.autoRetryDelaysNanoseconds[
-                min(attemptIndex, Self.autoRetryDelaysNanoseconds.count - 1)
-            ]
+        // One scheduled retry at a time. Cancelling and re-arming on every
+        // failure callback burned the whole ladder without ever reloading:
+        // WebKit can report the same failure more than once, each callback
+        // cancelled the pending retry (its Task.isCancelled guard then made it
+        // a no-op) and consumed another attempt.
+        guard autoRetryTask == nil else { return }
+
+        guard autoRetryAttempt < Self.maxAutoRetryAttempts else {
             updateStatus(
-                text: String(
-                    format: String(
-                        localized: "cloudflare.verify.auto_retrying",
-                        defaultValue: "网络异常，正在自动重试（%1$d/%2$d）…"
-                    ),
-                    autoRetryAttempt,
-                    Self.maxAutoRetryAttempts
-                ),
-                symbolName: "arrow.clockwise",
-                color: .systemOrange
+                text: String(localized: "cloudflare.verify.load_failed"),
+                symbolName: "exclamationmark.triangle.fill",
+                color: .systemRed
             )
-            autoRetryTask?.cancel()
-            autoRetryTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled, let self,
-                      !self.isClosing, !self.isFinishing, !self.didDetectClearance
-                else { return }
-                self.log("foreground auto retry attempt=\(attemptIndex + 1) base=\(self.baseURL.absoluteString)")
-                self.startChallengePreparation()
+            // Off-screen with nothing left to try: hand it back to the user
+            // (shield stays up) instead of holding a silent zombie.
+            if isMinimizing {
+                finishMinimizedChallenge(reportsFailure: true)
             }
             return
         }
 
+        let attemptNumber = autoRetryAttempt + 1
+        let delay = Self.autoRetryDelaysNanoseconds[
+            min(autoRetryAttempt, Self.autoRetryDelaysNanoseconds.count - 1)
+        ]
         updateStatus(
-            text: String(localized: "cloudflare.verify.load_failed"),
-            symbolName: "exclamationmark.triangle.fill",
-            color: .systemRed
+            text: String(
+                format: String(
+                    localized: "cloudflare.verify.auto_retrying",
+                    defaultValue: "网络异常，正在自动重试（%1$d/%2$d）…"
+                ),
+                attemptNumber,
+                Self.maxAutoRetryAttempts
+            ),
+            symbolName: "arrow.clockwise",
+            color: .systemOrange
         )
+        autoRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard let self, !Task.isCancelled,
+                  !self.isClosing, !self.isFinishing, !self.didDetectClearance
+            else { return }
+            self.autoRetryTask = nil
+            // Count the attempt only once it actually reloads.
+            self.autoRetryAttempt = attemptNumber
+            self.performAutoRetry()
+        }
+    }
+
+    /// Mirror the manual reload button exactly — the old retry only restarted
+    /// the load, leaving detection flags set, so the reloaded page could not
+    /// complete verification.
+    @MainActor
+    private func performAutoRetry() {
+        log("foreground auto retry attempt=\(autoRetryAttempt) base=\(baseURL.absoluteString)")
+        didDetectClearance = false
+        isCheckingClearance = false
+        needsVerificationRecheck = false
+        didFinishVerifiedNavigation = false
+        preparationTask?.cancel()
+        verificationCheckTask?.cancel()
+        verificationCheckTask = nil
+        updateStatus(
+            text: String(localized: "cloudflare.verify.instructions"),
+            symbolName: "shield.fill",
+            color: .systemOrange
+        )
+        startChallengePreparation()
     }
 }
 
@@ -1018,6 +1143,12 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         didFinishVerifiedNavigation = false
+        // A page actually started loading: this failure cycle is over, so a
+        // later blip gets the full retry ladder again.
+        if autoRetryAttempt > 0 {
+            autoRetryAttempt = 0
+            lastFailureHandledAt = nil
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
