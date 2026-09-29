@@ -5868,6 +5868,34 @@
         }
       }
     },
+    "cloudflare.verify.auto_retrying" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network hiccup — retrying automatically (%1$d/%2$d)…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络异常，正在自动重试（%1$d/%2$d）…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網絡異常，正在自動重試（%1$d/%2$d）…"
+          }
+        },
+        "zh-HK" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網絡異常，正在自動重試（%1$d/%2$d）…"
+          }
+        }
+      }
+    },
     "cloudflare.verify.load_failed" : {
       "localizations" : {
         "en" : {

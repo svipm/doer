@@ -252,6 +252,17 @@ final class CloudflareVerificationViewController: UIViewController {
     private var didFinishVerifiedNavigation = false
     private var isFinishing = false
     private var failureCleanupTask: Task<Void, Never>?
+    /// Transient challenge-page load failures auto-retry a few times with
+    /// backoff instead of asking the user to tap reload. Reset on every
+    /// successful load and manual reload; cancelled on close.
+    private var autoRetryAttempt = 0
+    private var autoRetryTask: Task<Void, Never>?
+    private static let maxAutoRetryAttempts = 3
+    private static let autoRetryDelaysNanoseconds: [UInt64] = [
+        1_200_000_000,
+        2_500_000_000,
+        5_000_000_000,
+    ]
 
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
@@ -329,6 +340,7 @@ final class CloudflareVerificationViewController: UIViewController {
         preparationTask?.cancel()
         verificationCheckTask?.cancel()
         failureCleanupTask?.cancel()
+        autoRetryTask?.cancel()
         if isCookieObserverRegistered {
             webView.configuration.websiteDataStore.httpCookieStore.remove(self)
         }
@@ -460,6 +472,9 @@ final class CloudflareVerificationViewController: UIViewController {
     @objc private func reloadTapped() {
         guard !isClosing else { return }
         log("foreground reload tapped base=\(baseURL.absoluteString)")
+        autoRetryAttempt = 0
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
         didDetectClearance = false
         isCheckingClearance = false
         needsVerificationRecheck = false
@@ -653,6 +668,8 @@ final class CloudflareVerificationViewController: UIViewController {
     @MainActor
     private func cancelPendingVerificationWork() async {
         isClosing = true
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
         preparationGeneration += 1
         let preparation = preparationTask
         preparationTask = nil
@@ -879,6 +896,52 @@ final class CloudflareVerificationViewController: UIViewController {
         statusIconView.image = UIImage(systemName: symbolName)
         statusIconView.tintColor = color
     }
+
+    /// Challenge-page load failures are usually transient (proxy just warming
+    /// up, a dropped request); retry automatically with backoff instead of
+    /// sending the user to the reload button. Bounded, then falls back to the
+    /// manual-refresh state.
+    @MainActor
+    private func handleChallengeLoadFailure(_ error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        guard !isClosing, !didDetectClearance, !isFinishing else { return }
+
+        if autoRetryAttempt < Self.maxAutoRetryAttempts {
+            let attemptIndex = autoRetryAttempt
+            autoRetryAttempt += 1
+            let delay = Self.autoRetryDelaysNanoseconds[
+                min(attemptIndex, Self.autoRetryDelaysNanoseconds.count - 1)
+            ]
+            updateStatus(
+                text: String(
+                    format: String(
+                        localized: "cloudflare.verify.auto_retrying",
+                        defaultValue: "网络异常，正在自动重试（%1$d/%2$d）…"
+                    ),
+                    autoRetryAttempt,
+                    Self.maxAutoRetryAttempts
+                ),
+                symbolName: "arrow.clockwise",
+                color: .systemOrange
+            )
+            autoRetryTask?.cancel()
+            autoRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, let self,
+                      !self.isClosing, !self.isFinishing, !self.didDetectClearance
+                else { return }
+                self.log("foreground auto retry attempt=\(attemptIndex + 1) base=\(self.baseURL.absoluteString)")
+                self.startChallengePreparation()
+            }
+            return
+        }
+
+        updateStatus(
+            text: String(localized: "cloudflare.verify.load_failed"),
+            symbolName: "exclamationmark.triangle.fill",
+            color: .systemRed
+        )
+    }
 }
 
 extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver {
@@ -928,6 +991,10 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinishVerifiedNavigation = true
+        // A successful load clears the retry ladder for any later transient blip.
+        autoRetryAttempt = 0
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.scheduleVerificationChecks()
@@ -948,11 +1015,7 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
             return
         }
         log("foreground didFail url=\(webView.url?.absoluteString ?? "none") error=\(error.localizedDescription)")
-        updateStatus(
-            text: String(localized: "cloudflare.verify.load_failed"),
-            symbolName: "exclamationmark.triangle.fill",
-            color: .systemRed
-        )
+        handleChallengeLoadFailure(error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -965,11 +1028,7 @@ extension CloudflareVerificationViewController: WKNavigationDelegate, WKUIDelega
             return
         }
         log("foreground didFailProvisional url=\(webView.url?.absoluteString ?? "none") error=\(error.localizedDescription)")
-        updateStatus(
-            text: String(localized: "cloudflare.verify.load_failed"),
-            symbolName: "exclamationmark.triangle.fill",
-            color: .systemRed
-        )
+        handleChallengeLoadFailure(error)
     }
 
     func webView(
