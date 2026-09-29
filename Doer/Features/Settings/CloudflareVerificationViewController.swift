@@ -469,9 +469,26 @@ final class CloudflareVerificationViewController: UIViewController {
         guard !isFinishing, !didDetectClearance, !isMinimizing else { return }
         isMinimizing = true
         log("foreground minimized base=\(baseURL.absoluteString)")
-        CloudflareChallengeMinimizer.shared.minimize(self)
+        let detachedWebView = webView
+        detachedWebView.removeFromSuperview()
+        CloudflareChallengeMinimizer.shared.minimize(self, webView: detachedWebView)
         startMinimizeTimeout()
         (navigationController ?? self).dismiss(animated: true)
+    }
+
+    /// Put the challenge web view back into this controller's layout after the
+    /// minimized challenge is re-presented.
+    func reattachWebViewAfterMinimization(_ webView: WKWebView) {
+        guard webView.superview !== view else { return }
+        webView.removeFromSuperview()
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
     }
 
     /// Called when a minimized challenge is brought back on screen: the sheet
