@@ -10,6 +10,18 @@ final class TopicReadingTracker {
     private var lastTickDate: Date?
     private var lastFlushDate = Date()
     private var isFlushInFlight = false
+    private var backgroundFlushToken: NSObjectProtocol?
+
+    /// Flush cadence follows the user's reporting policy: the web client's
+    /// 60-second rhythm, or a merged batch every 30 minutes (fewer automated
+    /// POSTs for Cloudflare to score). `.off` never flushes.
+    private static func flushInterval(for mode: ReadingTimingReportMode) -> TimeInterval? {
+        switch mode {
+        case .realtime: return 60
+        case .batched: return 30 * 60
+        case .off: return nil
+        }
+    }
 
     init(api: DiscourseAPI) {
         self.api = api
@@ -23,6 +35,7 @@ final class TopicReadingTracker {
         self.topicId = topicId
         lastTickDate = Date()
         lastFlushDate = Date()
+        registerBackgroundFlush()
         guard timer == nil else { return }
 
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
@@ -39,7 +52,30 @@ final class TopicReadingTracker {
         timer = nil
         lastTickDate = nil
         visiblePostNumbers.removeAll()
+        unregisterBackgroundFlush()
         flush(force: true)
+    }
+
+    /// Send whatever accumulated when the app leaves the foreground — the
+    /// system may suspend (then kill) the process, and in batched mode the
+    /// pending window can hold up to 30 minutes of reading.
+    private func registerBackgroundFlush() {
+        guard backgroundFlushToken == nil else { return }
+        backgroundFlushToken = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.flush(force: true)
+            }
+        }
+    }
+
+    private func unregisterBackgroundFlush() {
+        guard let backgroundFlushToken else { return }
+        NotificationCenter.default.removeObserver(backgroundFlushToken)
+        self.backgroundFlushToken = nil
     }
 
     func setVisiblePostNumbers(_ postNumbers: Set<Int>) {
@@ -76,6 +112,10 @@ final class TopicReadingTracker {
     }
 
     private func tick() {
+        let mode = AppSettings.shared.readingTimingReportMode
+        // `.off` also skips accumulation entirely — pending stays empty so no
+        // code path can produce a timings POST.
+        guard mode != .off else { return }
         let now = Date()
         let elapsedMilliseconds: Int
         if let lastTickDate {
@@ -91,12 +131,14 @@ final class TopicReadingTracker {
             pendingTimings[postNumber, default: 0] += elapsedMilliseconds
         }
 
-        if now.timeIntervalSince(lastFlushDate) >= 60 {
+        if let interval = Self.flushInterval(for: mode),
+           now.timeIntervalSince(lastFlushDate) >= interval {
             flush(force: false)
         }
     }
 
     private func flush(force: Bool) {
+        guard AppSettings.shared.readingTimingReportMode != .off else { return }
         guard !isFlushInFlight,
               let topicId,
               pendingTopicTimeMilliseconds > 0,

@@ -8,7 +8,6 @@ final class ReadingSettingsViewController: ObservableViewController {
         case showSuggestedTopics
         case composerInstantRender
         case showUserSignatures
-        case readTimingReport
         case hideScrollIndicators
         case bottomBarAutoHide
         case openExternalLinksInAppBrowser
@@ -26,7 +25,6 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return String(localized: "settings.reading.suggested_topics", defaultValue: "相关话题推荐")
             case .composerInstantRender: return String(localized: "settings.reading.instant_render", defaultValue: "编辑器即时渲染")
             case .showUserSignatures: return String(localized: "settings.reading.signatures", defaultValue: "显示用户签名")
-            case .readTimingReport: return String(localized: "settings.reading.timing_report", defaultValue: "阅读进度上报")
             case .hideScrollIndicators: return String(localized: "settings.reading.hide_scroll_indicators")
             case .bottomBarAutoHide: return String(localized: "settings.reading.collapse_navigation")
             case .openExternalLinksInAppBrowser: return String(localized: "settings.reading.in_app_browser")
@@ -46,10 +44,6 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return String(localized: "settings.reading.suggested_topics.subtitle", defaultValue: "读到话题底部时展示相关话题")
             case .composerInstantRender: return String(localized: "settings.reading.instant_render.subtitle", defaultValue: "输入时即时显示 Markdown 样式（默认关闭）")
             case .showUserSignatures: return String(localized: "settings.reading.signatures.subtitle", defaultValue: "在帖子下方显示签名")
-            case .readTimingReport: return String(
-                localized: "settings.reading.timing_report.subtitle",
-                defaultValue: "向服务器上报已读位置。关闭后仅保留本地进度，可显著减少触发 Cloudflare 验证的次数"
-            )
             case .hideScrollIndicators: return String(localized: "settings.reading.hide_scroll_indicators.subtitle")
             case .bottomBarAutoHide: return String(localized: "settings.reading.collapse_navigation.subtitle")
             case .openExternalLinksInAppBrowser: return String(localized: "settings.reading.in_app_browser.subtitle")
@@ -72,7 +66,6 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return "text.bubble"
             case .composerInstantRender: return "textformat"
             case .showUserSignatures: return "signature"
-            case .readTimingReport: return "chart.bar"
             case .hideScrollIndicators: return "scroll"
             case .bottomBarAutoHide: return "arrow.up.and.down"
             case .openExternalLinksInAppBrowser: return "rectangle.portrait.and.arrow.right"
@@ -91,6 +84,7 @@ final class ReadingSettingsViewController: ObservableViewController {
     private var toggleRows: [ToggleOption: ReadingToggleRowView] = [:]
     private var sectionHeaderViews: [DataManagementSectionHeaderView] = []
     private let progressGesturesEnabledRow = ReadingToggleRowView()
+    private let timingReportModeRow = DataManagementActionRowView()
     private let swipeLeftRow = DataManagementActionRowView()
     private let swipeRightRow = DataManagementActionRowView()
     private let swipeUpRow = DataManagementActionRowView()
@@ -173,6 +167,7 @@ final class ReadingSettingsViewController: ObservableViewController {
             self?.settings.progressGesturesEnabled = isOn
             self?.refreshDataViews()
         }
+        timingReportModeRow.addTarget(self, action: #selector(pickTimingReportMode), for: .touchUpInside)
         swipeLeftRow.addTarget(self, action: #selector(pickSwipeLeft), for: .touchUpInside)
         swipeRightRow.addTarget(self, action: #selector(pickSwipeRight), for: .touchUpInside)
         swipeUpRow.addTarget(self, action: #selector(pickSwipeUp), for: .touchUpInside)
@@ -197,7 +192,7 @@ final class ReadingSettingsViewController: ObservableViewController {
         readingBody.addArrangedSubview(makeToggleRow(for: .showSuggestedTopics))
         readingBody.addArrangedSubview(makeToggleRow(for: .composerInstantRender))
         readingBody.addArrangedSubview(makeToggleRow(for: .showUserSignatures))
-        readingBody.addArrangedSubview(makeToggleRow(for: .readTimingReport))
+        readingBody.addArrangedSubview(timingReportModeRow)
         readingBody.addArrangedSubview(makeToggleRow(for: .hideScrollIndicators))
         contentStack.addArrangedSubview(verticalSection(
             title: String(localized: "settings.reading.section.reading"),
@@ -310,6 +305,14 @@ final class ReadingSettingsViewController: ObservableViewController {
         }
 
         let gesturesOn = settings.progressGesturesEnabled
+        let timingMode = settings.readingTimingReportMode
+        timingReportModeRow.configure(
+            title: String(localized: "settings.reading.timing_report", defaultValue: "阅读进度上报"),
+            subtitle: timingMode.subtitle,
+            symbolName: "chart.bar",
+            tintColor: timingMode == .off ? .tertiaryLabel : accentColor,
+            backgroundColor: cardBackground
+        )
         progressGesturesEnabledRow.configure(
             title: String(localized: "progress_gesture.enable", defaultValue: "启用进度条手势"),
             subtitle: String(
@@ -361,6 +364,30 @@ final class ReadingSettingsViewController: ObservableViewController {
         swipeRightRow.alpha = gesturesOn ? 1 : 0.55
         swipeUpRow.alpha = gesturesOn ? 1 : 0.55
         menuActionsRow.alpha = gesturesOn ? 1 : 0.55
+    }
+
+    @objc private func pickTimingReportMode() {
+        let current = settings.readingTimingReportMode
+        let sheet = UIAlertController(
+            title: String(localized: "settings.reading.timing_report", defaultValue: "阅读进度上报"),
+            message: String(
+                localized: "settings.reading.timing_report.pick_help",
+                defaultValue: "聚合模式把阅读期间的多次上报合并为一个请求，减少触发 Cloudflare 验证。"
+            ),
+            preferredStyle: .actionSheet
+        )
+        for mode in ReadingTimingReportMode.allCases {
+            let title = mode == current ? "✓ \(mode.title)" : mode.title
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                guard let self else { return }
+                self.settings.readingTimingReportMode = mode
+                self.refreshDataViews()
+            })
+        }
+        sheet.addAction(UIAlertAction(title: String(localized: "common.cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = timingReportModeRow
+        sheet.popoverPresentationController?.sourceRect = timingReportModeRow.bounds
+        present(sheet, animated: true)
     }
 
     @objc private func pickSwipeLeft() {
@@ -424,8 +451,6 @@ final class ReadingSettingsViewController: ObservableViewController {
             return settings.composerInstantRender
         case .showUserSignatures:
             return settings.showUserSignatures
-        case .readTimingReport:
-            return settings.readingTimingReportEnabled
         case .hideScrollIndicators:
             return settings.hideScrollIndicators
         case .bottomBarAutoHide:
@@ -459,8 +484,6 @@ final class ReadingSettingsViewController: ObservableViewController {
             settings.composerInstantRender = isOn
         case .showUserSignatures:
             settings.showUserSignatures = isOn
-        case .readTimingReport:
-            settings.readingTimingReportEnabled = isOn
         case .hideScrollIndicators:
             settings.hideScrollIndicators = isOn
         case .bottomBarAutoHide:

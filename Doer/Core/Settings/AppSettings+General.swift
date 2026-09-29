@@ -90,6 +90,7 @@ extension AppSettings {
                 autoPanguSpacing: autoPanguSpacing,
                 clipboardTopicLinkPromptEnabled: clipboardTopicLinkPromptEnabled,
                 showUserSignatures: showUserSignatures,
+                readingTimingReportMode: readingTimingReportMode.rawValue,
                 readingTimingReportEnabled: readingTimingReportEnabled,
                 nestedReplyViewEnabled: nestedReplyViewEnabled,
                 showTopicFilterHint: showTopicFilterHint,
@@ -258,8 +259,12 @@ extension AppSettings {
         if let value = preferences.showUserSignatures {
             showUserSignatures = value
         }
-        if let value = preferences.readingTimingReportEnabled {
-            readingTimingReportEnabled = value
+        if let rawValue = preferences.readingTimingReportMode,
+           let mode = ReadingTimingReportMode(rawValue: rawValue) {
+            readingTimingReportMode = mode
+        } else if let legacy = preferences.readingTimingReportEnabled {
+            // Backups written when the setting was a plain Bool toggle.
+            readingTimingReportMode = legacy ? .realtime : .off
         }
         if let value = preferences.nestedReplyViewEnabled {
             nestedReplyViewEnabled = value
@@ -467,6 +472,7 @@ extension AppSettings {
         let autoPanguSpacing: Bool?
         let clipboardTopicLinkPromptEnabled: Bool?
         let showUserSignatures: Bool?
+        let readingTimingReportMode: Int?
         let readingTimingReportEnabled: Bool?
         let nestedReplyViewEnabled: Bool?
         let showTopicFilterHint: Bool?

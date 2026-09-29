@@ -2,6 +2,47 @@ import UIKit
 import ObjectiveC
 import CoreText
 
+/// Read-progress reporting policy (设置 → 阅读 → 阅读进度上报).
+enum ReadingTimingReportMode: Int, CaseIterable {
+    /// Web-client cadence: flush accumulated timings every 60 s.
+    case realtime = 0
+    /// Accumulate locally; one merged POST per 30 min + topic-exit/background.
+    case batched = 1
+    /// Never send; local progress (TopicReadProgressStore) still works.
+    case off = 2
+
+    var title: String {
+        switch self {
+        case .realtime:
+            return String(localized: "settings.reading.timing_mode.realtime", defaultValue: "实时上报（每 60 秒）")
+        case .batched:
+            return String(localized: "settings.reading.timing_mode.batched", defaultValue: "聚合上报（每 30 分钟一次，推荐）")
+        case .off:
+            return String(localized: "settings.reading.timing_mode.off", defaultValue: "关闭上报（仅保留本地进度）")
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .realtime:
+            return String(
+                localized: "settings.reading.timing_mode.realtime.subtitle",
+                defaultValue: "与网页端节奏一致，服务器已读状态最及时"
+            )
+        case .batched:
+            return String(
+                localized: "settings.reading.timing_mode.batched.subtitle",
+                defaultValue: "本机累计，退出帖子/切后台/每 30 分钟合并发送一个请求，大幅减少触发 Cloudflare 验证"
+            )
+        case .off:
+            return String(
+                localized: "settings.reading.timing_mode.off.subtitle",
+                defaultValue: "不发送任何阅读上报；本地已读样式和续读位置不受影响"
+            )
+        }
+    }
+}
+
 // MARK: - Progress bar gestures (FluxDO-aligned)
 extension AppSettings {
 
@@ -154,9 +195,27 @@ extension AppSettings {
     /// Off keeps local read styling / resume position (TopicReadProgressStore)
     /// and skips the background POST that most often draws a CF challenge.
     var readingTimingReportEnabled: Bool {
-        get { bool(forKey: "readingTimingReportEnabled", defaultValue: true) }
+        readingTimingReportMode != .off
+    }
+
+    /// How read progress reaches the server. `batched` accumulates locally and
+    /// sends one merged `timings` POST per 30 minutes (plus topic-exit and
+    /// background flushes) — far fewer automated-looking requests for
+    /// Cloudflare to score than the web client's 60-second cadence.
+    var readingTimingReportMode: ReadingTimingReportMode {
+        get {
+            if let raw = defaults.object(forKey: "readingTimingReportMode") as? Int,
+               let mode = ReadingTimingReportMode(rawValue: raw) {
+                return mode
+            }
+            // First release shipped a Bool toggle under this key.
+            if defaults.object(forKey: "readingTimingReportEnabled") != nil {
+                return defaults.bool(forKey: "readingTimingReportEnabled") ? .realtime : .off
+            }
+            return .realtime
+        }
         set {
-            defaults.set(newValue, forKey: "readingTimingReportEnabled")
+            defaults.set(newValue.rawValue, forKey: "readingTimingReportMode")
             notifyChanged()
         }
     }

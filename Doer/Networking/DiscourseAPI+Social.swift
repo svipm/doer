@@ -263,10 +263,10 @@ extension DiscourseAPI {
     /// Best-effort read progress report. CF 403 here must NOT pause the image gate
     /// (that freezes avatars for 60s while the user is still browsing).
     func sendTopicTimings(topicId: Int, topicTime: Int, timings: [Int: Int]) async -> Int? {
-        // User opt-out (设置 → 阅读 → 阅读进度上报). Local read progress keeps
-        // working via TopicReadProgressStore; this background POST is the
-        // request that most often draws a Cloudflare challenge.
-        guard AppSettings.shared.readingTimingReportEnabled else {
+        // User policy (设置 → 阅读 → 阅读进度上报): off never sends; batched
+        // sends through TopicReadingTracker's merged flushes. Local read
+        // progress keeps working via TopicReadProgressStore either way.
+        guard AppSettings.shared.readingTimingReportMode != .off else {
             return nil
         }
         let url = baseURL + "/topics/timings"
