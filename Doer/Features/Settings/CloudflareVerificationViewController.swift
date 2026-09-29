@@ -1085,7 +1085,8 @@ extension CloudflareVerificationViewController {
             ]
             sheet.selectedDetentIdentifier = compact
         } else {
-            sheet.detents = [.medium, .large]
+            // `medium`/`large` are static functions, not properties.
+            sheet.detents = [.medium(), .large()]
             sheet.selectedDetentIdentifier = .medium
         }
         sheet.prefersGrabberVisible = true
