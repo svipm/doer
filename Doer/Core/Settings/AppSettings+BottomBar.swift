@@ -81,11 +81,10 @@ extension AppSettings {
     static let minimumConfiguredForumDynamicTabItems = 0
     static let maximumConfiguredForumDynamicTabItems = 5
     static let maximumVisibleForumDynamicTabItems = 3
-    static let defaultForumDynamicTabItems: [ForumDynamicTabItem] = [
-        .history,
-        .notifications,
-        .chat,
-    ]
+    /// Dexo-style default: the bar ships with 首页 + 我的 only; every extra
+    /// entry point (浏览历史 / 搜索 / 通知 / 私信 / 收藏 / 站内聊天) is opt-in
+    /// from 设置 → 底栏布局.
+    static let defaultForumDynamicTabItems: [ForumDynamicTabItem] = []
 
     static func pluginForumTabItemID(pluginID: String, contributionID: String) -> String {
         "plugin:\(pluginID):\(contributionID)"

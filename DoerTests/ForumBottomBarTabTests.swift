@@ -9,15 +9,22 @@ final class ForumBottomBarTabTests: XCTestCase {
         XCTAssertTrue(AppSettings.ForumDynamicTabItem.allCases.contains(.chat))
     }
 
-    func testDefaultVisibleTabsIncludeChat() {
-        XCTAssertEqual(
-            AppSettings.defaultForumDynamicTabItems,
-            [.history, .notifications, .chat]
+    func testDefaultVisibleTabsAreHomeAndMeOnly() {
+        // Dexo-style default: the bar ships with 首页 + 我的; every dynamic
+        // entry point is opt-in from 设置 → 底栏布局.
+        XCTAssertTrue(AppSettings.defaultForumDynamicTabItems.isEmpty)
+        XCTAssertTrue(
+            AppSettings.defaultForumDynamicTabItems
+                .prefix(AppSettings.maximumVisibleForumDynamicTabItems)
+                .isEmpty
         )
-        XCTAssertEqual(
-            AppSettings.defaultForumDynamicTabItems.prefix(AppSettings.maximumVisibleForumDynamicTabItems).map(\.rawValue),
-            ["history", "notifications", "chat"]
-        )
+    }
+
+    func testSanitizerKeepsAnEmptyConfiguredList() {
+        // An empty list is a legal configuration (home + me only) and must
+        // survive sanitization instead of falling back to a non-empty default.
+        XCTAssertTrue(AppSettings.sanitizedForumDynamicTabItems([]).isEmpty)
+        XCTAssertTrue(AppSettings.sanitizedForumTabItemIDs([]).isEmpty)
     }
 
     func testSanitizedTabIDsKeepChatAndDropUnknown() {
