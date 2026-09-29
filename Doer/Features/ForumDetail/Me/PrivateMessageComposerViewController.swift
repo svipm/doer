@@ -419,7 +419,36 @@ final class PrivateMessageComposerViewController: UIViewController, UITextViewDe
         }
     }
 
-    private func scheduleDraftSave() {}
+    private func scheduleDraftSave() {
+        // The hydrate path restores drafts on open; this is the write side it
+        // was waiting for. Debounced dual write: local store + server draft.
+        guard !isSending else { return }
+        draftSaveTask?.cancel()
+        serverDraftSaveTask?.cancel()
+        let recipient = recipient
+        let draftKey = draftKey
+        draftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            ComposerLocalDraftStore.savePrivateMessage(
+                baseURL: api.baseURL,
+                recipient: recipient,
+                title: titleField.text ?? "",
+                raw: bodyRaw
+            )
+        }
+        serverDraftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await ComposerServerDraftSync.syncPrivateMessage(
+                api: api,
+                recipient: recipient,
+                title: titleField.text ?? "",
+                raw: bodyRaw,
+                draftKey: draftKey
+            )
+        }
+    }
 
     private func updateSendState() {
         let title = titleField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -469,6 +498,10 @@ final class PrivateMessageComposerViewController: UIViewController, UITextViewDe
             self.draftSaveTask?.cancel()
             self.serverDraftSaveTask?.cancel()
             Task {
+                ComposerLocalDraftStore.clearPrivateMessage(
+                    baseURL: self.api.baseURL,
+                    recipient: self.recipient
+                )
                 await ComposerServerDraftSync.clearServerDraft(api: self.api, draftKey: self.draftKey)
                 await MainActor.run {
                     self.onDraftDeleted?()
@@ -492,6 +525,10 @@ final class PrivateMessageComposerViewController: UIViewController, UITextViewDe
             guard let self else { return }
             do {
                 let response = try await api.sendPrivateMessage(to: to, title: messageTitle, raw: raw)
+                ComposerLocalDraftStore.clearPrivateMessage(
+                    baseURL: self.api.baseURL,
+                    recipient: self.recipient
+                )
                 await ComposerServerDraftSync.clearServerDraft(api: self.api, draftKey: self.draftKey)
                 dismiss(animated: true) { [onMessageSent] in
                     onMessageSent?(response)

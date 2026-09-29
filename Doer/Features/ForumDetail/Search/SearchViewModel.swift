@@ -256,8 +256,14 @@ final class SearchViewModel: DoerObservableObject {
 
         triggerAISearchIfNeeded(term: term, generation: searchGeneration)
 
+        let generation = searchGeneration
+
         do {
             let result = try await api.search(term: query, page: 1, typeFilter: "topic")
+            // A newer search superseded this one while it was in flight — the
+            // stale response must not overwrite the fresh results or flip the
+            // shared isSearching flag.
+            guard generation == searchGeneration else { return }
             indexTopics(result.topics ?? [])
             standardPosts = uniqueTopics(from: result.posts ?? [])
             userResults = result.users ?? []
@@ -266,13 +272,16 @@ final class SearchViewModel: DoerObservableObject {
             Task { await loadRecentSearches() }
             // Parallel tag search for the Tags tab.
             let tagQuery = Self.stripFilterTokens(from: term)
-            tagResults = (try? await api.searchTags(query: tagQuery)) ?? []
+            let tags = (try? await api.searchTags(query: tagQuery)) ?? []
+            guard generation == searchGeneration else { return }
+            tagResults = tags
             currentPage = 1
             canLoadMore = result.groupedSearchResult?.morePosts
                 ?? result.groupedSearchResult?.moreFullPageResults
                 ?? false
             rebuildDisplayPosts()
         } catch {
+            guard generation == searchGeneration else { return }
             standardPosts = []
             searchResults = []
             userResults = []
@@ -288,11 +297,15 @@ final class SearchViewModel: DoerObservableObject {
         guard canLoadMore, !isSearching else { return }
         isSearching = true
         notifyChanged()
+        let generation = searchGeneration
         let nextPage = currentPage + 1
         let query = buildQuery(term: currentTerm)
 
         do {
             let result = try await api.search(term: query, page: nextPage, typeFilter: "topic")
+            // A new search restarted pagination while this page was in flight;
+            // appending here would mix stale posts into the fresh result set.
+            guard generation == searchGeneration else { return }
             indexTopics(result.topics ?? [])
             let newPosts = uniqueTopics(from: result.posts ?? [])
             let existingTopicIds = Set(standardPosts.map(\.topicId))
@@ -303,7 +316,8 @@ final class SearchViewModel: DoerObservableObject {
                 ?? false
             rebuildDisplayPosts()
         } catch {
-            canLoadMore = false
+            // Transient failure: keep canLoadMore so scrolling can retry,
+            // matching the topic list's load-more behavior.
         }
         isSearching = false
         notifyChanged()

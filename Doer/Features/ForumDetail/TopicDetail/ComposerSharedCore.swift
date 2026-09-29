@@ -1129,10 +1129,10 @@ final class ComposerMarkdownCoordinator: NSObject {
             surface.composerSetUploading(false, statusText: nil)
             pendingMediaKind = nil
         }
+        let xzURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("xz")
         do {
-            let xzURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("xz")
             if FileManager.default.fileExists(atPath: xzURL.path) {
                 try FileManager.default.removeItem(at: xzURL)
             }
@@ -1158,6 +1158,9 @@ final class ComposerMarkdownCoordinator: NSObject {
             insertUploadMarkdown(tag, on: surface)
             pendingMediaForRetry = nil
         } catch {
+            // The retry re-copies from the original `url`, so the compressed
+            // copy can go now; leaving it behind piles up tmp files per retry.
+            try? FileManager.default.removeItem(at: xzURL)
             pendingMediaForRetry = (url, kind)
             presentUploadError(error, canRetry: true)
         }

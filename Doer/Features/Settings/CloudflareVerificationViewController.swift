@@ -257,6 +257,7 @@ final class CloudflareVerificationViewController: UIViewController {
     /// successful load and manual reload; cancelled on close.
     private var autoRetryAttempt = 0
     private var autoRetryTask: Task<Void, Never>?
+    private var lastFailureHandledAt: Date?
     private static let maxAutoRetryAttempts = 3
     private static let autoRetryDelaysNanoseconds: [UInt64] = [
         1_200_000_000,
@@ -700,6 +701,12 @@ final class CloudflareVerificationViewController: UIViewController {
         LocalConnectProxy.enableSafariWebViewHTTPAfterChallenge()
         CloudflareVerificationPolicy.markVerificationGrace(baseURL: baseURL)
         didDetectClearance = true
+        // The challenge passed — a leftover retry ladder must not count a later
+        // transient blip as already exhausted.
+        autoRetryAttempt = 0
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
+        lastFailureHandledAt = nil
         needsVerificationRecheck = false
         verificationCheckTask?.cancel()
         verificationCheckTask = nil
@@ -905,6 +912,14 @@ final class CloudflareVerificationViewController: UIViewController {
     private func handleChallengeLoadFailure(_ error: Error) {
         if (error as NSError).code == NSURLErrorCancelled { return }
         guard !isClosing, !didDetectClearance, !isFinishing else { return }
+        // A single failed navigation can fire both didFailProvisional and
+        // didFail; count each failure once.
+        let now = Date()
+        if let lastFailureHandledAt,
+           now.timeIntervalSince(lastFailureHandledAt) < 0.75 {
+            return
+        }
+        lastFailureHandledAt = now
 
         if autoRetryAttempt < Self.maxAutoRetryAttempts {
             let attemptIndex = autoRetryAttempt

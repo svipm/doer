@@ -51,7 +51,7 @@ class ChatTopicDetailViewController: ObservableViewController {
     /// the target and leaves the view at the fetched window's top (e.g.
     /// jumping 500 → 120 lands at ~115 instead).
     private var pendingScrollToPostId: Int?
-    private var pendingScrollAttempts = 0
+    private var pendingScrollDeadline = Date.distantPast
     private var isLoadingMore = false
     private var isLoadingEarlier = false
     private var postRowHeightCache: [Int: CGFloat] = [:]
@@ -888,26 +888,32 @@ class ChatTopicDetailViewController: ObservableViewController {
     }
 
     /// Single-shot scrolls can lose the race against the Diffable apply right
-    /// after a jump refetch; retry per layout pass until the row exists.
+    /// after a jump refetch; retry until the row exists, bounded by TIME (not
+    /// layout passes — unrelated relayouts would otherwise burn the budget).
     private func armPendingScrollToPost(_ postId: Int) {
         pendingScrollToPostId = postId
-        pendingScrollAttempts = 0
+        pendingScrollDeadline = Date().addingTimeInterval(3)
         view.setNeedsLayout()
     }
 
     private func consumePendingScrollIfNeeded() {
         guard let postId = pendingScrollToPostId else { return }
-        pendingScrollAttempts += 1
         // Bounded: a post that never renders (filtered / unsupported) must not
         // keep a pending scroll alive forever.
-        guard pendingScrollAttempts <= 60 else {
+        guard Date() < pendingScrollDeadline else {
             pendingScrollToPostId = nil
             return
         }
-        guard let index = dataSource.snapshot().indexOfItem(postId) else { return }
+        guard let index = dataSource.snapshot().indexOfItem(postId) else {
+            // Keep the pump alive — no further layout pass may come on its own.
+            view.setNeedsLayout()
+            return
+        }
         let indexPath = IndexPath(row: index, section: 0)
         if tableView.doer_scrollRow(at: indexPath, position: jumpScrollPosition(), animated: false) {
             pendingScrollToPostId = nil
+        } else {
+            view.setNeedsLayout()
         }
     }
 

@@ -461,7 +461,40 @@ final class ReplyComposerViewController: UIViewController {
         sourceRestyleTask?.cancel()
     }
 
-    private func scheduleDraftSave() {}
+    private func scheduleDraftSave() {
+        // `hydrateServerDraftIfNeeded` restores drafts on open; this is the
+        // write side it was waiting for. Debounced dual write: local store
+        // (Me → Drafts / process kill) + Discourse server draft.
+        guard case .reply = submissionMode, !isSubmitting else { return }
+        draftSaveTask?.cancel()
+        serverDraftSaveTask?.cancel()
+        let topicId = topicId
+        let replyToPostNumber = replyToPost?.postNumber
+        let baseURL = baseURL
+        let draftKey = serverDraftKey
+        draftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            ComposerLocalDraftStore.saveReply(
+                baseURL: baseURL,
+                topicId: topicId,
+                replyToPostNumber: replyToPostNumber,
+                raw: composerRawText
+            )
+        }
+        guard let draftKey else { return }
+        serverDraftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await ComposerServerDraftSync.syncReply(
+                api: api,
+                topicId: topicId,
+                replyToPostNumber: replyToPostNumber,
+                raw: composerRawText,
+                draftKey: draftKey
+            )
+        }
+    }
 
     private var usesExperimentalComposer: Bool { experimentalComposerView != nil }
 
@@ -1231,6 +1264,11 @@ final class ReplyComposerViewController: UIViewController {
             self.draftSaveTask?.cancel()
             self.serverDraftSaveTask?.cancel()
             Task {
+                ComposerLocalDraftStore.clearReply(
+                    baseURL: self.baseURL,
+                    topicId: self.topicId,
+                    replyToPostNumber: self.replyToPost?.postNumber
+                )
                 await ComposerServerDraftSync.clearServerDraft(api: self.api, draftKey: draftKey)
                 await MainActor.run {
                     self.onDraftDeleted?()
@@ -1306,6 +1344,11 @@ final class ReplyComposerViewController: UIViewController {
                         topicId: topicId,
                         replyToPostNumber: replyToPost?.postNumber,
                         raw: raw
+                    )
+                    ComposerLocalDraftStore.clearReply(
+                        baseURL: baseURL,
+                        topicId: topicId,
+                        replyToPostNumber: replyToPost?.postNumber
                     )
                     guard let draftKey = self.serverDraftKey else { return }
                     let api = self.api

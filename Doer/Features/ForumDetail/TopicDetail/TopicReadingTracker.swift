@@ -11,6 +11,9 @@ final class TopicReadingTracker {
     private var lastFlushDate = Date()
     private var isFlushInFlight = false
     private var backgroundFlushToken: NSObjectProtocol?
+    /// A forced flush arrived while another was in flight; run it once the
+    /// current one settles so the pending batch is not stranded.
+    private var pendingFollowUpFlush = false
 
     /// Flush cadence follows the user's reporting policy: the web client's
     /// 60-second rhythm, or a merged batch every 30 minutes (fewer automated
@@ -114,8 +117,12 @@ final class TopicReadingTracker {
     private func tick() {
         let mode = AppSettings.shared.readingTimingReportMode
         // `.off` also skips accumulation entirely — pending stays empty so no
-        // code path can produce a timings POST.
-        guard mode != .off else { return }
+        // code path can produce a timings POST. Keep the tick clock fresh so
+        // switching back to a reporting mode doesn't compute a stale elapsed.
+        guard mode != .off else {
+            lastTickDate = Date()
+            return
+        }
         let now = Date()
         let elapsedMilliseconds: Int
         if let lastTickDate {
@@ -139,11 +146,17 @@ final class TopicReadingTracker {
 
     private func flush(force: Bool) {
         guard AppSettings.shared.readingTimingReportMode != .off else { return }
-        guard !isFlushInFlight,
-              let topicId,
+        guard let topicId,
               pendingTopicTimeMilliseconds > 0,
               !pendingTimings.isEmpty
         else { return }
+        if isFlushInFlight {
+            // A forced flush (topic exit / background) must not be swallowed by
+            // an in-flight one — the process can be suspended right after, and
+            // in batched mode that pending window holds up to 30 minutes.
+            if force { pendingFollowUpFlush = true }
+            return
+        }
 
         let topicTime = pendingTopicTimeMilliseconds
         let timings = pendingTimings
@@ -161,26 +174,9 @@ final class TopicReadingTracker {
             await MainActor.run {
                 guard let self else { return }
                 self.isFlushInFlight = false
-                if let statusCode,
-                   (200 ..< 300).contains(statusCode),
-                   let highestSeen = timings.keys.max() {
-                    TopicReadProgressStore.shared.record(
-                        topicId: topicId,
-                        highestSeen: highestSeen,
-                        baseURL: api.baseURL,
-                        username: AuthManager.shared.username(for: api.baseURL)
-                    )
-                    NotificationCenter.default.post(
-                        name: .topicReadProgressDidChange,
-                        object: nil,
-                        userInfo: [
-                            TopicReadProgressUserInfoKey.baseURL: api.baseURL,
-                            TopicReadProgressUserInfoKey.topicId: topicId,
-                            TopicReadProgressUserInfoKey.highestSeen: highestSeen,
-                        ]
-                    )
-                } else if let highestSeen = timings.keys.max() {
-                    // Even if timings upload fails, keep local progress so list/resume stay honest.
+
+                // Local progress stays honest regardless of upload outcome.
+                if let highestSeen = timings.keys.max() {
                     TopicReadProgressStore.shared.record(
                         topicId: topicId,
                         highestSeen: highestSeen,
@@ -197,13 +193,25 @@ final class TopicReadingTracker {
                         ]
                     )
                 }
-                guard !force,
-                      let statusCode,
-                      !(200 ..< 300).contains(statusCode)
-                else { return }
-                self.pendingTopicTimeMilliseconds += topicTime
-                for (postNumber, milliseconds) in timings {
-                    self.pendingTimings[postNumber, default: 0] += milliseconds
+
+                if let statusCode, (200 ..< 300).contains(statusCode) {
+                    // Uploaded.
+                } else {
+                    // Failed — including a nil status (no auth, CF cooldown,
+                    // invalid params). Keep the batch so the next natural flush
+                    // retries instead of silently dropping the accumulated
+                    // reading window.
+                    self.pendingTopicTimeMilliseconds += topicTime
+                    for (postNumber, milliseconds) in timings {
+                        self.pendingTimings[postNumber, default: 0] += milliseconds
+                    }
+                }
+
+                if self.pendingFollowUpFlush {
+                    self.pendingFollowUpFlush = false
+                    if self.pendingTopicTimeMilliseconds > 0 {
+                        self.flush(force: true)
+                    }
                 }
             }
         }

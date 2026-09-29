@@ -33,6 +33,10 @@ enum ExternalImageFetcher {
     private static var inflight: [String: [(UIImage?) -> Void]] = [:]
     /// Wall-clock when each inflight key was created — used to reap stuck batches.
     private static var inflightStartedAt: [String: Date] = [:]
+    /// Per-batch token. When the reaper drops a stuck batch, the task behind it
+    /// is still running; without a token its late `finish` would remove and fire
+    /// a *newer* batch's callbacks with the stale (usually nil) result.
+    private static var inflightTokens: [String: UUID] = [:]
 
     private static let maxConcurrentNetwork = 6
     private static let networkSemaphore = DispatchSemaphore(value: maxConcurrentNetwork)
@@ -76,23 +80,25 @@ enum ExternalImageFetcher {
         }
         inflight[coalescedKey] = [completion]
         inflightStartedAt[coalescedKey] = Date()
+        let batchToken = UUID()
+        inflightTokens[coalescedKey] = batchToken
         inflightLock.unlock()
 
         networkQueue.async {
             if !forceRetry, let cached = AvatarImageLoader.imageFromDiskCacheIfAvailable(for: url) {
-                finish(cacheKey: coalescedKey, image: cached)
+                finish(cacheKey: coalescedKey, token: batchToken, image: cached)
                 return
             }
             if !forceRetry,
                CloudflareImageGate.shouldBlockNetworkLoad(url: url, cloudflareBaseURL: refererBaseURL) {
-                finish(cacheKey: coalescedKey, image: nil)
+                finish(cacheKey: coalescedKey, token: batchToken, image: nil)
                 return
             }
 
             // Bounded wait: never block this queue forever if slots are wedged.
             let gotSlot = networkSemaphore.wait(timeout: .now() + 25) == .success
             guard gotSlot else {
-                finish(cacheKey: coalescedKey, image: nil)
+                finish(cacheKey: coalescedKey, token: batchToken, image: nil)
                 return
             }
 
@@ -102,13 +108,13 @@ enum ExternalImageFetcher {
 
             if !forceRetry, let cached = AvatarImageLoader.imageFromDiskCacheIfAvailable(for: url) {
                 networkSemaphore.signal()
-                finish(cacheKey: coalescedKey, image: cached)
+                finish(cacheKey: coalescedKey, token: batchToken, image: cached)
                 return
             }
             if !forceRetry,
                CloudflareImageGate.shouldBlockNetworkLoad(url: url, cloudflareBaseURL: refererBaseURL) {
                 networkSemaphore.signal()
-                finish(cacheKey: coalescedKey, image: nil)
+                finish(cacheKey: coalescedKey, token: batchToken, image: nil)
                 return
             }
 
@@ -155,7 +161,7 @@ enum ExternalImageFetcher {
                             detection: detection
                         )
                     }
-                    finish(cacheKey: coalescedKey, image: nil)
+                    finish(cacheKey: coalescedKey, token: batchToken, image: nil)
                     return
                 }
 
@@ -167,7 +173,7 @@ enum ExternalImageFetcher {
                     AvatarImageLoader.clearFailedLoad(for: url)
                 }
 
-                finish(cacheKey: coalescedKey, image: image)
+                finish(cacheKey: coalescedKey, token: batchToken, image: image)
             }
             task.resume()
         }
@@ -195,11 +201,19 @@ enum ExternalImageFetcher {
         return UIImage(data: data)
     }
 
-    private static func finish(cacheKey: String, image: UIImage?) {
+    private static func finish(cacheKey: String, token: UUID, image: UIImage?) {
         let callbacks: [(UIImage?) -> Void]
         inflightLock.lock()
+        // A reaped batch's task may still complete later. If the key was taken
+        // over by a newer batch (token mismatch), this finish must not remove
+        // or fire the newer batch's callbacks.
+        guard inflightTokens[cacheKey] == token else {
+            inflightLock.unlock()
+            return
+        }
         callbacks = inflight.removeValue(forKey: cacheKey) ?? []
         inflightStartedAt.removeValue(forKey: cacheKey)
+        inflightTokens.removeValue(forKey: cacheKey)
         inflightLock.unlock()
 
         Task { @MainActor in
@@ -222,6 +236,7 @@ enum ExternalImageFetcher {
                 staleCallbacks.append(contentsOf: cbs)
             }
             inflightStartedAt.removeValue(forKey: key)
+            inflightTokens.removeValue(forKey: key)
         }
         inflightLock.unlock()
         guard !staleCallbacks.isEmpty else { return }

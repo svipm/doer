@@ -113,7 +113,12 @@ final class NewAPICheckInModelsViewController: UIViewController {
     }
 
     private func loadModels(force: Bool = false) async {
-        guard !isLoading || force else { return }
+        guard !isLoading else {
+            // A load is already in flight; don't run a second one against the
+            // same shared UI state. Pull-to-refresh just stops spinning.
+            if force { refreshControl.endRefreshing() }
+            return
+        }
         isLoading = true
         statusLabel.isHidden = true
         tableView.isHidden = models.isEmpty

@@ -61,9 +61,14 @@ actor NewAPICheckInService {
         flavor: NewAPISiteFlavor
     ) -> String? {
         let candidates = flavor.checkInEndpointCandidates
-        guard let index = candidates.firstIndex(of: endpoint) else { return nil }
-        let next = candidates.index(after: index)
-        return next < candidates.endIndex ? candidates[next] : nil
+        // The platform's stored endpoint defaults to "/api/user/checkin"
+        // regardless of flavor, which may be the LAST candidate (Veloera /
+        // DoneHub list check_in first). Advancing strictly forward would then
+        // return nil and the negotiation would never run. Try any *other*
+        // candidate instead; a customized endpoint (not in the list) is never
+        // renegotiated.
+        guard candidates.contains(endpoint) else { return nil }
+        return candidates.first { $0 != endpoint }
     }
 
     nonisolated static func isMissingEndpoint(_ result: NewAPICheckInResult) -> Bool {

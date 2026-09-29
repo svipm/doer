@@ -734,6 +734,7 @@ final class NewAPICheckInTests: XCTestCase {
                 flavor: custom.resolvedFlavor
             )
         )
+        // new-api lists checkin first; either direction must find the other one.
         let preset = NewAPICheckInPlatform(name: "Preset", baseURL: "https://api.example.com")
         XCTAssertEqual(
             NewAPICheckInService.nextEndpointCandidate(
@@ -742,11 +743,28 @@ final class NewAPICheckInTests: XCTestCase {
             ),
             "/api/user/check_in"
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             NewAPICheckInService.nextEndpointCandidate(
                 after: "/api/user/check_in",
                 flavor: preset.resolvedFlavor
-            )
+            ),
+            "/api/user/checkin"
+        )
+        // Veloera / DoneHub store the default endpoint ("/api/user/checkin")
+        // which is the *last* candidate for those flavors — negotiation must
+        // still find check_in instead of returning nil.
+        let veloera = NewAPICheckInPlatform(
+            name: "Veloera",
+            baseURL: "https://veloera.example.com",
+            flavor: NewAPISiteFlavor.veloera.rawValue
+        )
+        XCTAssertEqual(veloera.resolvedFlavor, .veloera)
+        XCTAssertEqual(
+            NewAPICheckInService.nextEndpointCandidate(
+                after: "/api/user/checkin",
+                flavor: veloera.resolvedFlavor
+            ),
+            "/api/user/check_in"
         )
     }
 

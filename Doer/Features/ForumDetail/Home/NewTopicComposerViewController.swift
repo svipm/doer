@@ -385,7 +385,37 @@ final class NewTopicComposerViewController: UIViewController {
         serverDraftSaveTask?.cancel()
     }
 
-    private func scheduleDraftSave() {}
+    private func scheduleDraftSave() {
+        // `hydrateServerDraftIfNeeded` restores on open; this is the write
+        // side. Debounced dual write: local store + Discourse server draft.
+        guard !isSubmitting else { return }
+        draftSaveTask?.cancel()
+        serverDraftSaveTask?.cancel()
+        let draftKey = draftKey
+        draftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            ComposerLocalDraftStore.saveNewTopic(
+                baseURL: api.baseURL,
+                title: titleField.text ?? "",
+                raw: bodyRaw,
+                categoryId: selectedCategoryId,
+                tags: selectedTags
+            )
+        }
+        serverDraftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await ComposerServerDraftSync.syncNewTopic(
+                api: api,
+                title: titleField.text ?? "",
+                raw: bodyRaw,
+                categoryId: selectedCategoryId,
+                tags: selectedTags,
+                draftKey: draftKey
+            )
+        }
+    }
 
 
     private func setupHierarchy() {
@@ -893,6 +923,7 @@ final class NewTopicComposerViewController: UIViewController {
             self.draftSaveTask?.cancel()
             self.serverDraftSaveTask?.cancel()
             Task {
+                ComposerLocalDraftStore.clearNewTopic(baseURL: self.api.baseURL)
                 await ComposerServerDraftSync.clearServerDraft(api: self.api, draftKey: self.draftKey)
                 await MainActor.run {
                     self.onDraftDeleted?()
@@ -970,6 +1001,7 @@ final class NewTopicComposerViewController: UIViewController {
                     tags: submission.tags
                 )
                 let api = self.api
+                ComposerLocalDraftStore.clearNewTopic(baseURL: api.baseURL)
                 await ComposerServerDraftSync.clearServerDraft(api: api, draftKey: self.draftKey)
                 if response.isEnqueued {
                     presentQueuedAlert()

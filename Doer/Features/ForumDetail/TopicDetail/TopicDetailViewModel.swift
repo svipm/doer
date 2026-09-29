@@ -853,7 +853,7 @@ final class TopicDetailViewModel: DoerObservableObject {
         // FluxDo: content filters are mutually exclusive with each other and exit tree view.
         if next != nil {
             isFilteringTopLevel = false
-            isNestedViewEnabled = false
+            setNestedViewEnabled(false)
         }
         notifyChanged()
         requestUsernameFilterReload()
@@ -865,7 +865,7 @@ final class TopicDetailViewModel: DoerObservableObject {
         if enabled {
             let needsUnfilteredReload = filterUsername != nil || pendingUsernameFilterReload
             filterUsername = nil
-            isNestedViewEnabled = false
+            setNestedViewEnabled(false)
             notifyChanged()
             if TopicUsernameFilterPolicy.shouldFetchUnfilteredTopicView(
                 hadUsernameFilter: needsUnfilteredReload,
@@ -959,7 +959,14 @@ final class TopicDetailViewModel: DoerObservableObject {
                 trackVisit: false,
                 usernameFilters: filterUsername
             )
-            guard generation == parseGeneration else { return }
+            guard generation == parseGeneration else {
+                // A newer flow (jump / reload) owns the state now; don't leave
+                // this reload's loading flag stuck on — it would stall the
+                // live-stream sync forever.
+                isLoading = false
+                notifyChanged()
+                return
+            }
             if isNestedViewEnabled {
                 pendingUsernameFilterReload = true
                 isLoading = false
@@ -972,6 +979,8 @@ final class TopicDetailViewModel: DoerObservableObject {
                 generation: generation
             )
             if !applied {
+                isLoading = false
+                notifyChanged()
                 return
             }
         } catch {
@@ -1647,6 +1656,10 @@ final class TopicDetailViewModel: DoerObservableObject {
 
         if !missingIds.isEmpty {
             let response = try await api.fetchTopicPosts(topicId: topicId, postIds: missingIds)
+            // A jump / filter reload can have cleared the window while this
+            // fetch was in flight; appending now would re-pollute the cleared
+            // stream with stale posts.
+            guard generation == parseGeneration, !Task.isCancelled else { return false }
             let newPosts = response.postStream.posts.filter { !loadedPostIds.contains($0.id) }
             if !newPosts.isEmpty {
                 let sortedPosts = postsSortedByStream(newPosts)
@@ -1904,6 +1917,15 @@ final class TopicDetailViewModel: DoerObservableObject {
         pendingNewReplyCount = 0
         notifyChanged()
 
+        // Snapshot the current window so a failed jump (network error / CF)
+        // can put the user back where they were instead of a blank body.
+        let previousPosts = topic?.postStream.posts ?? []
+        let previousParsedBlocks = parsedBlocks
+        let previousUnsupportedPostIds = unsupportedPostIds
+        let previousLoadedPostIds = loadedPostIds
+        let previousFirstPost = firstPost
+        let previousRange = loadedRangeStart..<loadedRangeEnd
+
         // Clear current posts
         topic?.postStream.posts.removeAll()
         parsedBlocks.removeAll()
@@ -1950,6 +1972,17 @@ final class TopicDetailViewModel: DoerObservableObject {
             #endif
             errorMessage = error.localizedDescription
             jumpTargetFloor = nil
+            // Restore the pre-jump window — a cleared body with a stale loaded
+            // range left the user on a blank page that load-earlier refused to
+            // refill (suppressLoadEarlier stays armed until a downward scroll).
+            parseGeneration += 1
+            topic?.postStream.posts = previousPosts
+            parsedBlocks = previousParsedBlocks
+            unsupportedPostIds = previousUnsupportedPostIds
+            loadedPostIds = previousLoadedPostIds
+            firstPost = previousFirstPost
+            loadedRangeStart = previousRange.lowerBound
+            loadedRangeEnd = previousRange.upperBound
         }
 
         isJumping = false
