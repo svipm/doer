@@ -54,6 +54,8 @@ jobs:
           fi
           git tag -f "$TAG"
           git push origin "$TAG" --force
+          # Hand-maintained changelog: this fork has no PRs for --generate-notes,
+          # and generated notes would overwrite the curated list each build.
           gh release create "$TAG" build/doer-unsigned.ipa \
             --title "Doer $TAG" \
-            --generate-notes
+            --notes-file docs/release-notes.md

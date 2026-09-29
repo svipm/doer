@@ -17,6 +17,15 @@
   <img src="https://img.shields.io/badge/UIKit-native-lightgrey" alt="UIKit" />
 </p>
 
+## Disclaimer
+
+This project is provided **for learning and technical reference only** and must not be used for any commercial purpose. By using it you acknowledge and agree that:
+
+- It is an unofficial third-party client, not affiliated with, endorsed by, or connected to Linux.do;
+- You will respect the target site's terms of service and community rules and keep request rates reasonable; you are solely responsible for any consequences of use (including but not limited to account restrictions or data loss);
+- The software is provided "as is", without warranty of any kind, and its availability or accuracy is not guaranteed;
+- Rights holders who believe this project infringes their rights may contact the maintainer for removal.
+
 ## Screenshots
 
 | Home | Mini Program | Me |
