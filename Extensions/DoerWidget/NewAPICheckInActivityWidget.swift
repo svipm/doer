@@ -3,8 +3,8 @@ import SwiftUI
 import WidgetKit
 
 /// Dynamic Island / lock-screen presentation for the NewAPI batch check-in.
-/// Only live on iOS 16.1+ (ActivityKit); the bundle gates its registration.
-@available(iOS 16.1, *)
+/// Only live on iOS 16.2+ (ActivityKit); the bundle gates its registration.
+@available(iOS 16.2, *)
 struct NewAPICheckInActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NewAPICheckInActivityAttributes.self) { context in
@@ -54,7 +54,7 @@ struct NewAPICheckInActivityWidget: Widget {
     }
 }
 
-@available(iOS 16.1, *)
+@available(iOS 16.2, *)
 private struct LockScreenCheckInCard: View {
     let total: Int
     let state: NewAPICheckInActivityAttributes.ContentState
@@ -81,7 +81,7 @@ private struct LockScreenCheckInCard: View {
     }
 }
 
-@available(iOS 16.1, *)
+@available(iOS 16.2, *)
 private struct CheckInCountRow: View {
     let state: NewAPICheckInActivityAttributes.ContentState
 
