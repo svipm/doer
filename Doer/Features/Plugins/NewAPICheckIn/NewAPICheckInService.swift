@@ -194,6 +194,7 @@ actor NewAPICheckInService {
         var summary = NewAPICheckInBatchSummary(total: platforms.count)
         guard !platforms.isEmpty else { return summary }
 
+        await NewAPICheckInLiveActivity.start(total: platforms.count)
         await withTaskGroup(of: NewAPICheckInStatus.self) { group in
             var nextIndex = 0
             let concurrency = max(1, min(maxConcurrent, platforms.count))
@@ -204,6 +205,12 @@ actor NewAPICheckInService {
             }
             while let status = await group.next() {
                 summary.record(status)
+                await NewAPICheckInLiveActivity.update(
+                    completed: summary.success + summary.alreadySigned + summary.failed + summary.authenticationExpired,
+                    succeeded: summary.success,
+                    alreadySigned: summary.alreadySigned,
+                    failed: summary.failed + summary.authenticationExpired
+                )
                 if nextIndex < platforms.count {
                     let platform = platforms[nextIndex]
                     nextIndex += 1
@@ -211,6 +218,12 @@ actor NewAPICheckInService {
                 }
             }
         }
+        await NewAPICheckInLiveActivity.end(
+            completed: summary.success + summary.alreadySigned + summary.failed + summary.authenticationExpired,
+            succeeded: summary.success,
+            alreadySigned: summary.alreadySigned,
+            failed: summary.failed + summary.authenticationExpired
+        )
         return summary
     }
 

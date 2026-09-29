@@ -71,6 +71,7 @@ let project = Project(
                     "Doer/AppIcons/**",
                 ]),
                 "Shared/TrustLevelWidgetSnapshot.swift",
+                "Shared/NewAPICheckInActivityAttributes.swift",
             ],
             resources: .resources([
                 .glob(pattern: "Doer/Assets.xcassets/**"),
@@ -166,6 +167,7 @@ let project = Project(
             sources: [
                 "Extensions/DoerWidget/**",
                 "Shared/TrustLevelWidgetSnapshot.swift",
+                "Shared/NewAPICheckInActivityAttributes.swift",
             ],
             resources: [
                 "Extensions/DoerWidget/Assets.xcassets",

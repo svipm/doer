@@ -421,6 +421,7 @@ final class NewAPICheckInViewController: UITableViewController {
         isRunningBatch = true
         refreshSummary()
         let batchPlatforms = platforms
+        NewAPICheckInLiveActivity.start(total: batchPlatforms.count)
         Task {
             var summary = NewAPICheckInBatchSummary(total: batchPlatforms.count)
             for platform in batchPlatforms {
@@ -434,10 +435,22 @@ final class NewAPICheckInViewController: UITableViewController {
                 } else {
                     summary.record(.authenticationExpired)
                 }
+                NewAPICheckInLiveActivity.update(
+                    completed: summary.success + summary.alreadySigned + summary.failed + summary.authenticationExpired,
+                    succeeded: summary.success,
+                    alreadySigned: summary.alreadySigned,
+                    failed: summary.failed + summary.authenticationExpired
+                )
             }
             isRunningBatch = false
             await reload()
             presentBatchSummary(summary)
+            NewAPICheckInLiveActivity.end(
+                completed: summary.success + summary.alreadySigned + summary.failed + summary.authenticationExpired,
+                succeeded: summary.success,
+                alreadySigned: summary.alreadySigned,
+                failed: summary.failed + summary.authenticationExpired
+            )
         }
     }
 

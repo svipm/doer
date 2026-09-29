@@ -6,6 +6,9 @@ struct DoerWidgetBundle: WidgetBundle {
     var body: some Widget {
         DoerQuickActionsWidget()
         TrustLevelWidget()
+        if #available(iOS 16.1, *) {
+            NewAPICheckInActivityWidget()
+        }
     }
 }
 
