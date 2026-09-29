@@ -72,7 +72,9 @@ final class MetricsDiagnosticsService: NSObject {
 }
 
 extension MetricsDiagnosticsService: MXMetricManagerSubscriber {
-    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+    // MetricKit delivers on its own queue; the class is MainActor-isolated by
+    // default, so these ObjC protocol requirements must stay nonisolated.
+    nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
         for payload in payloads {
             store(json: payload.jsonRepresentation(), kind: "diagnostic")
             if let line = summaryLine(for: payload) {
@@ -81,7 +83,7 @@ extension MetricsDiagnosticsService: MXMetricManagerSubscriber {
         }
     }
 
-    func didReceive(_ payloads: [MXMetricPayload]) {
+    nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
             store(json: payload.jsonRepresentation(), kind: "metric")
             DohDebugLog.record("daily metrics payload stored", subsystem: "Metrics")

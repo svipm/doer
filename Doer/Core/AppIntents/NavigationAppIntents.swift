@@ -35,5 +35,5 @@ struct OpenNotificationsIntent: AppIntent {
 @MainActor
 private func open(deepLink: String) async {
     guard let url = URL(string: deepLink) else { return }
-    _ = try? await UIApplication.shared.open(url)
+    _ = await UIApplication.shared.open(url)
 }
