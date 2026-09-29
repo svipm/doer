@@ -272,7 +272,9 @@ struct DiscourseNotification: Decodable, Identifiable {
         case 8:
             return String(localized: "notifications.type.invitee_accepted", defaultValue: "接受邀请")
         case 9:
-            return Self.L("notifications.action.posted", "\(actor) 发布了新帖")
+            // Discourse "posted": someone replied in a topic you watch — not a
+            // new topic. The old copy ("发布了新帖") read like a new topic.
+            return Self.L("notifications.action.posted", "\(actor) 在关注的话题中回复了")
         case 10:
             return Self.L("notifications.action.moved", "\(actor) 移动了帖子")
         case 11:
@@ -293,7 +295,8 @@ struct DiscourseNotification: Decodable, Identifiable {
         case 16:
             return String(localized: "notifications.type.group_message", defaultValue: "群组消息")
         case 17:
-            return String(localized: "notifications.action.watching_first_post", defaultValue: "有新话题")
+            // watching_first_post = a NEW TOPIC in a category/tag you watch.
+            return String(localized: "notifications.action.watching_first_post", defaultValue: "关注的分类有新话题")
         case 18:
             return String(localized: "notifications.action.topic_reminder", defaultValue: "话题提醒")
         case 19:
@@ -371,7 +374,7 @@ struct DiscourseNotification: Decodable, Identifiable {
         case 5, 19: return String(localized: "notifications.type.liked", defaultValue: "点赞")
         case 6, 7: return String(localized: "notifications.type.private_message", defaultValue: "私信")
         case 8: return String(localized: "notifications.type.invitee_accepted", defaultValue: "接受邀请")
-        case 9: return String(localized: "notifications.type.posted", defaultValue: "新帖")
+        case 9: return String(localized: "notifications.type.posted", defaultValue: "关注话题新回复")
         case 10: return String(localized: "notifications.type.moved", defaultValue: "移动帖子")
         case 11, 39: return String(localized: "notifications.type.linked", defaultValue: "链接")
         case 12: return String(localized: "notifications.type.badge", defaultValue: "勋章")
@@ -379,7 +382,7 @@ struct DiscourseNotification: Decodable, Identifiable {
         case 14: return String(localized: "notifications.type.custom", defaultValue: "自定义通知")
         case 15: return String(localized: "notifications.type.group_mentioned", defaultValue: "群组提及")
         case 16: return String(localized: "notifications.type.group_message", defaultValue: "群组消息")
-        case 17: return String(localized: "notifications.type.watching_first_post", defaultValue: "关注首帖")
+        case 17: return String(localized: "notifications.type.watching_first_post", defaultValue: "分类新话题")
         case 18: return String(localized: "notifications.type.topic_reminder", defaultValue: "话题提醒")
         case 20: return String(localized: "notifications.type.post_approved", defaultValue: "帖子通过")
         case 24: return String(localized: "notifications.type.bookmark", defaultValue: "书签")

@@ -21356,7 +21356,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有新话题"
+            "value" : "关注的分类有新话题"
           }
         },
         "zh-Hant" : {
@@ -22584,13 +22584,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New post"
+            "value" : "Reply in a topic you watch"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新帖子"
+            "value" : "关注话题新回复"
           }
         },
         "zh-Hant" : {
@@ -22836,13 +22836,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Watching first post"
+            "value" : "New topic in a category you watch"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关注首帖"
+            "value" : "分类新话题"
           }
         },
         "zh-Hant" : {
