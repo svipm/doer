@@ -522,12 +522,24 @@ final class WebViewHTTPClient: NSObject, WKNavigationDelegate {
         try await withCheckedThrowingContinuation { continuation in
             let lock = NSLock()
             var resumed = false
+            var timeoutTask: Task<Void, Never>?
             func finish(_ body: (CheckedContinuation<Any?, Error>) -> Void) {
                 lock.lock()
                 defer { lock.unlock() }
                 guard !resumed else { return }
                 resumed = true
+                timeoutTask?.cancel()
                 body(continuation)
+            }
+            // The JS fetch has no other watchdog. If the web content process
+            // stalls, callAsyncJavaScript's completion never fires and this
+            // continuation would park the request queue forever — the same
+            // failure class the navigation path guards against with its 12s
+            // timeout.
+            timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                guard !Task.isCancelled else { return }
+                finish { $0.resume(throwing: URLError(.timedOut)) }
             }
             webView.callAsyncJavaScript(
                 fetchScript,

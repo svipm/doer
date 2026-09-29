@@ -4,6 +4,7 @@ import UIKit
 final class NewAPICheckInDetailViewController: UITableViewController {
     private enum Section: Int, CaseIterable {
         case request
+        case usage
         case signInBehavior
         case attachedHeaders
         case actions
@@ -14,6 +15,7 @@ final class NewAPICheckInDetailViewController: UITableViewController {
     private enum ActionRow: Int, CaseIterable {
         case signIn
         case refreshBalance
+        case viewModels
         case webSignIn
         case relogin
         case editRequest
@@ -61,6 +63,7 @@ final class NewAPICheckInDetailViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .request: return 3
+        case .usage: return 3
         case .signInBehavior: return 1
         case .attachedHeaders: return attachedHeaderRows().count
         case .actions: return ActionRow.allCases.count
@@ -74,6 +77,8 @@ final class NewAPICheckInDetailViewController: UITableViewController {
         switch Section(rawValue: section) {
         case .request:
             return String(localized: "plugins.newapi.detail.request", defaultValue: "签到请求")
+        case .usage:
+            return String(localized: "plugins.newapi.detail.usage", defaultValue: "用量")
         case .signInBehavior:
             return String(localized: "plugins.newapi.detail.sign_in_flow", defaultValue: "签到流程")
         case .actions:
@@ -91,6 +96,11 @@ final class NewAPICheckInDetailViewController: UITableViewController {
             return String(
                 localized: "plugins.newapi.detail.custom_request",
                 defaultValue: "已自定义请求，将覆盖 NewAPI 默认值。"
+            )
+        case .usage:
+            return String(
+                localized: "plugins.newapi.detail.usage.help",
+                defaultValue: "数值来自最近一次「刷新余额/用量」，会话有效时点一下即可更新。"
             )
         case .signInBehavior:
             return String(
@@ -114,6 +124,8 @@ final class NewAPICheckInDetailViewController: UITableViewController {
         switch Section(rawValue: indexPath.section) {
         case .request:
             return requestCell(at: indexPath)
+        case .usage:
+            return usageCell(at: indexPath)
         case .signInBehavior:
             return signInBehaviorCell()
         case .attachedHeaders:
@@ -139,6 +151,8 @@ final class NewAPICheckInDetailViewController: UITableViewController {
                 Task { await signIn() }
             case .refreshBalance:
                 Task { await refreshBalance() }
+            case .viewModels:
+                openModels()
             case .webSignIn:
                 openManualSignIn()
             case .relogin:
@@ -154,6 +168,64 @@ final class NewAPICheckInDetailViewController: UITableViewController {
             break
         }
     }
+
+    private func usageCell(at indexPath: IndexPath) -> UITableViewCell {
+        let cell = reusableCell(identifier: "usage-value")
+        let rows = usageRows()
+        let row = rows[indexPath.row]
+        var content = UIListContentConfiguration.valueCell()
+        content.text = row.title
+        content.secondaryText = row.value
+        content.textProperties.color = .secondaryLabel
+        content.secondaryTextProperties.color = .label
+        content.secondaryTextProperties.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        content.secondaryTextProperties.numberOfLines = 1
+        content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0)
+        cell.contentConfiguration = content
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    private func usageRows() -> [(title: String, value: String)] {
+        [
+            (
+                String(localized: "plugins.newapi.detail.usage.balance", defaultValue: "余额"),
+                balanceText() ?? "—"
+            ),
+            (
+                String(localized: "plugins.newapi.detail.usage.used", defaultValue: "历史消耗"),
+                Self.formatDollarValue(platform.lastUsedQuota)
+            ),
+            (
+                String(localized: "plugins.newapi.detail.usage.requests", defaultValue: "历史请求"),
+                platform.lastRequestCount.map { Self.countFormatter.string(from: NSNumber(value: $0)) ?? "\($0)" } ?? "—"
+            ),
+        ]
+    }
+
+    /// Mirrors the list page's unit handling: raw `quota` divides by 500k to
+    /// display dollars; `credit`/`balance` are already dollar-denominated.
+    private func balanceText() -> String? {
+        guard let value = platform.lastQuotaValue else { return nil }
+        let unit = (platform.lastQuotaUnit ?? "quota").lowercased()
+        if unit == "quota" || unit == "remain_quota" {
+            return String(format: "$%.2f", Double(value) / 500_000)
+        }
+        let formatted = Self.countFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        return unit == "credit" || unit == "balance" ? "$\(formatted)" : formatted
+    }
+
+    nonisolated private static func formatDollarValue(_ quota: Int64?) -> String {
+        guard let quota else { return "—" }
+        return String(format: "$%.2f", Double(quota) / 500_000)
+    }
+
+    private static let countFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
 
     private func requestCell(at indexPath: IndexPath) -> UITableViewCell {
         let cell = reusableCell(identifier: "request-value")
@@ -357,10 +429,17 @@ final class NewAPICheckInDetailViewController: UITableViewController {
             )
         case .refreshBalance:
             return (
-                String(localized: "plugins.newapi.detail.refresh_balance", defaultValue: "刷新余额"),
+                String(localized: "plugins.newapi.detail.refresh_balance", defaultValue: "刷新余额/用量"),
                 "creditcard.fill",
                 .systemBlue,
                 false
+            )
+        case .viewModels:
+            return (
+                String(localized: "plugins.newapi.detail.view_models", defaultValue: "查看模型"),
+                "list.bullet.rectangle",
+                .systemBlue,
+                true
             )
         case .webSignIn:
             return (
@@ -478,7 +557,10 @@ final class NewAPICheckInDetailViewController: UITableViewController {
     private func presentRequestEditor() {
         let alert = UIAlertController(
             title: String(localized: "plugins.newapi.detail.edit", defaultValue: "编辑签到请求"),
-            message: String(localized: "plugins.newapi.detail.edit_help", defaultValue: "可填写相对路径或完整 URL。自定义 Header 可通过 Curl 导入。"),
+            message: String(
+                localized: "plugins.newapi.detail.edit_help",
+                defaultValue: "可填写相对路径或完整 URL。自定义 Header 可通过 Curl 导入。关键词用于自建签到系统的结果判定，多个用逗号分隔。"
+            ),
             preferredStyle: .alert
         )
         alert.addTextField { field in
@@ -496,13 +578,31 @@ final class NewAPICheckInDetailViewController: UITableViewController {
             field.text = self.platform.body
             field.autocapitalizationType = .none
         }
+        alert.addTextField { field in
+            field.placeholder = String(
+                localized: "plugins.newapi.detail.success_keywords",
+                defaultValue: "成功关键词（逗号分隔，可选）"
+            )
+            field.text = self.platform.successKeywords?.joined(separator: ",")
+            field.autocorrectionType = .no
+        }
+        alert.addTextField { field in
+            field.placeholder = String(
+                localized: "plugins.newapi.detail.already_keywords",
+                defaultValue: "已签到关键词（逗号分隔，可选）"
+            )
+            field.text = self.platform.alreadyKeywords?.joined(separator: ",")
+            field.autocorrectionType = .no
+        }
         alert.addAction(UIAlertAction(title: String(localized: "common.cancel", defaultValue: "取消"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "common.save", defaultValue: "保存"), style: .default) { [weak self, weak alert] _ in
-            guard let self, let fields = alert?.textFields else { return }
+            guard let self, let fields = alert?.textFields, fields.count >= 5 else { return }
             var updated = self.platform
             updated.endpoint = fields[0].text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? updated.endpoint
             updated.method = fields[1].text?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().nilIfEmpty ?? "POST"
             updated.body = fields[2].text?.nilIfEmpty
+            updated.successKeywords = Self.parseKeywordList(fields[3].text)
+            updated.alreadyKeywords = Self.parseKeywordList(fields[4].text)
             Task {
                 do {
                     try await self.store.save(updated)
@@ -514,6 +614,16 @@ final class NewAPICheckInDetailViewController: UITableViewController {
             }
         })
         present(alert, animated: true)
+    }
+
+    /// Comma/中文逗号 separated keyword list; nil when nothing usable remains.
+    nonisolated private static func parseKeywordList(_ raw: String?) -> [String]? {
+        guard let raw else { return nil }
+        let words = raw
+            .split(whereSeparator: { $0 == "," || $0 == "，" || $0 == ";" || $0 == "；" })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return words.isEmpty ? nil : words
     }
 
     private func presentAttempt(_ attempt: NewAPICheckInAttempt) {
@@ -591,6 +701,15 @@ final class NewAPICheckInDetailViewController: UITableViewController {
         }
         navigationController?.pushViewController(controller, animated: true)
     }
+    private func openModels() {
+        let controller = NewAPICheckInModelsViewController(
+            platform: platform,
+            store: store,
+            service: service
+        )
+        navigationController?.pushViewController(controller, animated: true)
+    }
+
     private func confirmDelete() {
         let alert = UIAlertController(
             title: String(localized: "plugins.newapi.detail.delete_title", defaultValue: "删除平台？"),

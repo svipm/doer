@@ -46,6 +46,13 @@ final class InAppBrowserViewController: UIViewController {
     private let titleCapsule = UIControl()
     private let securityImageView = UIImageView()
     private let titleLabel = UILabel()
+
+    // NewAPI site auto-detection: probes each visited origin once (cached by
+    // the shared detector) and offers one-tap add when it looks like a relay.
+    private let siteSuggestionBanner = NewAPISiteSuggestionBanner()
+    private var detectedSiteOrigin: URL?
+    private var detectedSiteFlavor: NewAPISiteFlavor?
+    private var siteSuggestionHostsShown = Set<String>()
     private var topBarHeightConstraint: NSLayoutConstraint?
 
     private var progressObservation: NSKeyValueObservation?
@@ -96,6 +103,14 @@ final class InAppBrowserViewController: UIViewController {
         view.addSubview(progressView)
         view.addSubview(webView)
         view.addSubview(errorView)
+        view.addSubview(siteSuggestionBanner)
+        siteSuggestionBanner.isHidden = true
+        siteSuggestionBanner.onAdd = { [weak self] in
+            self?.addDetectedSiteToCheckIn()
+        }
+        siteSuggestionBanner.onDismiss = { [weak self] in
+            self?.hideSiteSuggestionBanner()
+        }
 
         let topBarHeight = topBar.heightAnchor.constraint(equalToConstant: hidesBrowserControlBar ? 0 : 48)
         topBarHeightConstraint = topBarHeight
@@ -125,6 +140,10 @@ final class InAppBrowserViewController: UIViewController {
             errorView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             errorView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
             errorView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
+
+            siteSuggestionBanner.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 10),
+            siteSuggestionBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            siteSuggestionBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
         ])
 
         progressObservation = webView.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] webView, _ in
@@ -681,17 +700,24 @@ final class InAppBrowserViewController: UIViewController {
             )
             return
         }
+        addCurrentSiteToCheckIn(origin: origin, flavor: nil)
+    }
 
+    /// Adds (or completes login for) a NewAPI check-in platform from the
+    /// built-in browser. `flavor` comes from the auto-detector; nil keeps the
+    /// legacy default-preset behavior.
+    private func addCurrentSiteToCheckIn(origin: URL, flavor: NewAPISiteFlavor?) {
         Task { @MainActor in
             let runtime = NewAPICheckInRuntime.shared
             let platforms = await runtime.store.platforms()
             let existing = NewAPICheckInLoginSupport.matchingPlatform(in: platforms, url: origin)
             let login = NewAPICheckInLoginViewController(
                 baseURL: origin,
-                mode: .newAPI,
+                mode: (flavor ?? .newAPI) == .generic ? .custom : .newAPI,
                 store: runtime.store,
                 service: runtime.service,
-                existingPlatform: existing
+                existingPlatform: existing,
+                flavor: flavor
             ) { [weak self] in
                 guard let self else { return }
                 DoerFeedback.presentToast(
@@ -712,6 +738,76 @@ final class InAppBrowserViewController: UIViewController {
                 present(nav, animated: true)
             }
         }
+    }
+
+    // MARK: - NewAPI site auto-detection
+
+    /// Called after each main-frame page load. Probes the current origin's
+    /// public /api/status once per host (results cached in the detector) and
+    /// surfaces a one-tap add suggestion for NewAPI-family relays the user
+    /// has not added yet.
+    private func detectNewAPISite(at url: URL) async {
+        guard !isTornDown,
+              BrowserNavigationURLClassifier.classify(url) == .web,
+              let origin = NewAPICheckInLoginSupport.siteOrigin(from: url),
+              let host = origin.host?.lowercased(),
+              !siteSuggestionHostsShown.contains(host)
+        else { return }
+
+        let detection = await NewAPISiteDetector.shared.detect(origin: origin)
+        guard !isTornDown else { return }
+        // User navigated away while probing — drop the stale suggestion.
+        guard let currentURL = webView.url ?? initialURL,
+              let currentOrigin = NewAPICheckInLoginSupport.siteOrigin(from: currentURL),
+              currentOrigin.host?.lowercased() == host
+        else { return }
+        guard let detection else { return }
+        siteSuggestionHostsShown.insert(host)
+
+        let runtime = NewAPICheckInRuntime.shared
+        let platforms = await runtime.store.platforms()
+        guard NewAPICheckInLoginSupport.matchingPlatform(in: platforms, url: origin) == nil else { return }
+
+        detectedSiteOrigin = origin
+        detectedSiteFlavor = detection.flavor
+        var message = String(
+            localized: "plugins.newapi.detector.title",
+            defaultValue: "检测到 NewAPI 站点"
+        )
+        if let systemName = detection.systemName, !systemName.isEmpty {
+            message += " · \(systemName)"
+        } else if detection.flavor != .newAPI {
+            message += " · \(detection.flavor.displayName)"
+        }
+        siteSuggestionBanner.configure(message: message)
+        showSiteSuggestionBanner()
+    }
+
+    private func addDetectedSiteToCheckIn() {
+        hideSiteSuggestionBanner()
+        guard let origin = detectedSiteOrigin else { return }
+        addCurrentSiteToCheckIn(origin: origin, flavor: detectedSiteFlavor)
+    }
+
+    private func showSiteSuggestionBanner() {
+        siteSuggestionBanner.layer.removeAllAnimations()
+        siteSuggestionBanner.isHidden = false
+        siteSuggestionBanner.alpha = 0
+        siteSuggestionBanner.transform = CGAffineTransform(translationX: 0, y: -8)
+        UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4, options: [.curveEaseOut]) {
+            self.siteSuggestionBanner.alpha = 1
+            self.siteSuggestionBanner.transform = .identity
+        }
+    }
+
+    private func hideSiteSuggestionBanner() {
+        UIView.animate(withDuration: 0.18, animations: {
+            self.siteSuggestionBanner.alpha = 0
+            self.siteSuggestionBanner.transform = CGAffineTransform(translationX: 0, y: -8)
+        }, completion: { _ in
+            self.siteSuggestionBanner.isHidden = true
+            self.siteSuggestionBanner.transform = .identity
+        })
     }
 }
 
@@ -776,6 +872,9 @@ extension InAppBrowserViewController: WKNavigationDelegate {
             applyPageInteractionLock()
         }
         try? store.recordVisit(url: url, title: webView.title)
+        Task { @MainActor in
+            await detectNewAPISite(at: url)
+        }
         Task {
             await WebCookieStore.shared.syncFromWebView(webView.configuration.websiteDataStore, for: url)
             if let userAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String {

@@ -46,6 +46,12 @@ class ChatTopicDetailViewController: ObservableViewController {
     private var didLoad = false
     private var cloudflareCompletionObservationToken: NSObjectProtocol?
     private var isRecoveringAfterCloudflare = false
+    /// Jump scroll that lost the race against a Diffable apply. Retried per
+    /// layout pass — a single-shot scroll after `jumpToFloor` otherwise drops
+    /// the target and leaves the view at the fetched window's top (e.g.
+    /// jumping 500 → 120 lands at ~115 instead).
+    private var pendingScrollToPostId: Int?
+    private var pendingScrollAttempts = 0
     private var isLoadingMore = false
     private var isLoadingEarlier = false
     private var postRowHeightCache: [Int: CGFloat] = [:]
@@ -427,6 +433,13 @@ class ChatTopicDetailViewController: ObservableViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = canNavigateBack
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Finish jump scrolls that raced the Diffable apply (see
+        // pendingScrollToPostId) once the target row actually exists.
+        consumePendingScrollIfNeeded()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -864,9 +877,38 @@ class ChatTopicDetailViewController: ObservableViewController {
     }
 
     func scrollToPostId(_ postId: Int) {
+        guard let index = dataSource.snapshot().indexOfItem(postId) else {
+            armPendingScrollToPost(postId)
+            return
+        }
+        let indexPath = IndexPath(row: index, section: 0)
+        if !tableView.doer_scrollRow(at: indexPath, position: jumpScrollPosition(), animated: false) {
+            armPendingScrollToPost(postId)
+        }
+    }
+
+    /// Single-shot scrolls can lose the race against the Diffable apply right
+    /// after a jump refetch; retry per layout pass until the row exists.
+    private func armPendingScrollToPost(_ postId: Int) {
+        pendingScrollToPostId = postId
+        pendingScrollAttempts = 0
+        view.setNeedsLayout()
+    }
+
+    private func consumePendingScrollIfNeeded() {
+        guard let postId = pendingScrollToPostId else { return }
+        pendingScrollAttempts += 1
+        // Bounded: a post that never renders (filtered / unsupported) must not
+        // keep a pending scroll alive forever.
+        guard pendingScrollAttempts <= 60 else {
+            pendingScrollToPostId = nil
+            return
+        }
         guard let index = dataSource.snapshot().indexOfItem(postId) else { return }
         let indexPath = IndexPath(row: index, section: 0)
-        _ = tableView.doer_scrollRow(at: indexPath, position: jumpScrollPosition(), animated: false)
+        if tableView.doer_scrollRow(at: indexPath, position: jumpScrollPosition(), animated: false) {
+            pendingScrollToPostId = nil
+        }
     }
 
     func shouldStayAtOpeningPost(floor: Int? = nil, postNumber: Int? = nil, postId: Int? = nil) -> Bool {
@@ -984,6 +1026,7 @@ class ChatTopicDetailViewController: ObservableViewController {
         guard floor > 1 else { return }
         await viewModel.jumpToFloor(floor, containerWidth: view.bounds.width)
         applySnapshot()
+        guard viewModel.errorMessage == nil else { return }
         let ids = viewModel.allPostIds
         guard floor >= 1, floor <= ids.count else { return }
         let postId = ids[floor - 1]

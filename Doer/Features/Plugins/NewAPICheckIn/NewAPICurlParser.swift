@@ -14,7 +14,14 @@ enum NewAPICurlParseError: Error, Equatable, Sendable {
 }
 
 enum NewAPICurlParser {
+    /// Clipboard paste guard: tokenize is linear but `Array(input)` doubles
+    /// memory transiently; a legitimate curl never comes close to 256 KB.
+    private static let maximumInputLength = 262_144
+
     nonisolated static func parse(_ input: String) throws -> NewAPICurlRequest {
+        guard input.count <= maximumInputLength else {
+            throw NewAPICurlParseError.malformed("input too large")
+        }
         let tokens = try tokenize(input)
         guard !tokens.isEmpty else {
             throw NewAPICurlParseError.malformed("empty input")

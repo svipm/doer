@@ -370,6 +370,10 @@ final class WebCookieStore {
             Self.cookieByRebasing($0, ontoHost: loopbackHost, secure: false)
         }
         guard !mirrored.isEmpty else { return }
+        // Remember what we put on loopback: these copies drop HttpOnly, so
+        // once the challenge completes they must not linger where any
+        // loopback-origin page could read them via document.cookie.
+        loopbackMirrorCookies = mirrored
         await injectCookies(mirrored, into: dataStore, replacingAuthOnHost: loopbackHost)
     }
 
@@ -386,17 +390,41 @@ final class WebCookieStore {
             guard cookie.name == "cf_clearance" else { return nil }
             let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
             guard LocalConnectProxy.isLoopbackGatewayHost(domain) else { return nil }
-            return Self.cookieByRebasing(cookie, ontoHost: baseHost, secure: true)
+            return Self.cookieByRebasing(cookie, ontoHost: baseHost, secure: true, preserveHTTPOnly: true)
         }
         guard !adopted.isEmpty else { return }
         setCookies(adopted)
-        DohDebugLog.record("adopted loopback cf_clearance onto \(baseHost)", subsystem: "CF")
+        // Remove exactly the cookies we mirrored onto loopback (and the
+        // clearance that landed there). Never blanket-delete loopback-host
+        // cookies — the user may legitimately visit their own localhost
+        // sites through the in-app browser.
+        let mirrors = loopbackMirrorCookies
+        loopbackMirrorCookies = []
+        var removedCount = 0
+        for cookie in cookies where LocalConnectProxy.isLoopbackGatewayHost(
+            Self.normalizedDomain(cookie.domain)
+        ) {
+            guard mirrors.contains(where: {
+                $0.name == cookie.name && Self.normalizedDomain($0.domain) == Self.normalizedDomain(cookie.domain)
+            }) || cookie.name == "cf_clearance" else { continue }
+            await WKCookieStoreIO.deleteCookie(cookie, on: dataStore.httpCookieStore)
+            removedCount += 1
+        }
+        DohDebugLog.record(
+            "adopted loopback cf_clearance onto \(baseHost); removed \(removedCount) loopback mirror cookies",
+            subsystem: "CF"
+        )
     }
+
+    /// Cookies this store most recently mirrored onto loopback hosts.
+    @MainActor
+    private var loopbackMirrorCookies: [HTTPCookie] = []
 
     static func cookieByRebasing(
         _ source: HTTPCookie,
         ontoHost host: String,
-        secure: Bool
+        secure: Bool,
+        preserveHTTPOnly: Bool = false
     ) -> HTTPCookie? {
         var props: [HTTPCookiePropertyKey: Any] = [
             .name: source.name,
@@ -409,6 +437,11 @@ final class WebCookieStore {
         }
         if secure {
             props[.secure] = "TRUE"
+        }
+        // Rebased onto the real site the cookie should keep its JS opacity.
+        // The loopback mirror intentionally leaves it off (challenge page).
+        if preserveHTTPOnly && source.isHTTPOnly {
+            props[.httpOnly] = "TRUE"
         }
         return HTTPCookie(properties: props)
     }
@@ -788,9 +821,14 @@ final class WebCookieStore {
     }
 
     private func save() {
+        // Encode + write under the same lock as jar mutation. Callers span the
+        // response queue, URL loading system and the main thread; snapshotting
+        // outside the lock let two concurrent saves land out of order, with
+        // the older snapshot overwriting a rotated session or resurrecting
+        // cookies that clearCookies() had just removed.
         lock.lock()
+        defer { lock.unlock() }
         let records = jar.values.compactMap { StoredCookie(cookie: $0) }
-        lock.unlock()
 
         do {
             let data = try JSONEncoder().encode(records)

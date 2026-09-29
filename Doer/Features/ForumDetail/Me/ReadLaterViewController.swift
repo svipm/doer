@@ -540,10 +540,13 @@ private extension DiscourseTopicList.Topic {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let topic = try? JSONDecoder().decode(DiscourseTopicList.Topic.self, from: data)
         else {
-            // Last resort — should not hit if CodingKeys stay stable.
+            // Last resort — should not hit if CodingKeys stay stable. `id` is
+            // an Int (always JSON-safe); the title is deliberately NOT
+            // interpolated so a clipboard title containing quotes/backslashes
+            // can never break this JSON and crash the try!.
             return (try! JSONDecoder().decode(
                 DiscourseTopicList.Topic.self,
-                from: Data(#"{"id":\#(id),"fancy_title":"\#(title.replacingOccurrences(of: "\"", with: ""))","title":"\#(title.replacingOccurrences(of: "\"", with: ""))","posts_count":1,"reply_count":0,"views":0,"created_at":"2020-01-01T00:00:00Z"}"#.utf8)
+                from: Data(#"{"id":\#(id),"fancy_title":"…","title":"…","posts_count":1,"reply_count":0,"views":0,"created_at":"2020-01-01T00:00:00Z"}"#.utf8)
             ))
         }
         return topic

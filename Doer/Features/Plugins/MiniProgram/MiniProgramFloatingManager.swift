@@ -87,14 +87,15 @@ final class MiniProgramFloatingManager {
             bubble.removeFromSuperview()
         })
 
-        self.session = nil
-
         let presenterVC = presenter
             ?? topPresenter()
         guard let presenterVC else {
+            // Session still set, so discard() can tear the host down properly.
             discard(animated: false)
             return
         }
+
+        self.session = nil
 
         host.view.isHidden = false
         if host.presentingViewController == nil {

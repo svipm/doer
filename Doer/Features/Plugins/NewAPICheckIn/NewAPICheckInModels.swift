@@ -108,6 +108,27 @@ struct NewAPICheckInLoginProbeResult: Equatable, Sendable {
     }
 }
 
+/// Custom result keywords for self-built check-in systems. They extend the
+/// built-in heuristic matching (never replace it) and are matched
+/// case-insensitively against the response message.
+struct NewAPICheckInKeywordOverrides: Equatable, Sendable {
+    var success: [String]
+    var already: [String]
+    var expired: [String]
+
+    static let empty = NewAPICheckInKeywordOverrides(success: [], already: [], expired: [])
+
+    nonisolated var isEmpty: Bool {
+        success.isEmpty && already.isEmpty && expired.isEmpty
+    }
+}
+
+struct NewAPICheckInModelsResult: Equatable, Sendable {
+    var models: [String]
+    /// Non-nil when the list could not be fetched (unsupported site / error).
+    var message: String?
+}
+
 struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var name: String
@@ -117,8 +138,15 @@ struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
     var body: String?
     var platformType: NewAPICheckInPlatformType?
     var source: NewAPICheckInPlatformSource?
+    /// NewAPI-family preset (new-api / veloera / done-hub / generic).
+    /// nil on legacy platforms resolves via `platformType`.
+    var flavor: String?
     /// Opt-in because interactive Web login cannot run from background intents.
     var reloginBeforeSignIn: Bool?
+    /// Self-built system result keywords (see `NewAPICheckInKeywordOverrides`).
+    var successKeywords: [String]?
+    var alreadyKeywords: [String]?
+    var expiredKeywords: [String]?
     var createdAt: Date
     var updatedAt: Date
     var lastStatus: NewAPICheckInStatus?
@@ -126,6 +154,10 @@ struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
     var lastMessage: String?
     var lastQuotaValue: Int64?
     var lastQuotaUnit: String?
+    /// Lifetime consumed quota from the last successful `/api/user/self` probe.
+    var lastUsedQuota: Int64?
+    /// Lifetime request count from the last successful `/api/user/self` probe.
+    var lastRequestCount: Int?
 
     nonisolated init(
         id: UUID = UUID(),
@@ -136,14 +168,20 @@ struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
         body: String? = "{}",
         platformType: NewAPICheckInPlatformType? = .newAPI,
         source: NewAPICheckInPlatformSource? = .webView,
+        flavor: String? = nil,
         reloginBeforeSignIn: Bool? = nil,
+        successKeywords: [String]? = nil,
+        alreadyKeywords: [String]? = nil,
+        expiredKeywords: [String]? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         lastStatus: NewAPICheckInStatus? = nil,
         lastAttemptAt: Date? = nil,
         lastMessage: String? = nil,
         lastQuotaValue: Int64? = nil,
-        lastQuotaUnit: String? = nil
+        lastQuotaUnit: String? = nil,
+        lastUsedQuota: Int64? = nil,
+        lastRequestCount: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -153,7 +191,11 @@ struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
         self.body = body
         self.platformType = platformType
         self.source = source
+        self.flavor = flavor
         self.reloginBeforeSignIn = reloginBeforeSignIn
+        self.successKeywords = successKeywords
+        self.alreadyKeywords = alreadyKeywords
+        self.expiredKeywords = expiredKeywords
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastStatus = lastStatus
@@ -161,10 +203,27 @@ struct NewAPICheckInPlatform: Codable, Equatable, Identifiable, Sendable {
         self.lastMessage = lastMessage
         self.lastQuotaValue = lastQuotaValue
         self.lastQuotaUnit = lastQuotaUnit
+        self.lastUsedQuota = lastUsedQuota
+        self.lastRequestCount = lastRequestCount
     }
 
     nonisolated var requiresReloginBeforeSignIn: Bool {
         reloginBeforeSignIn == true
+    }
+
+    nonisolated var resolvedFlavor: NewAPISiteFlavor {
+        if let flavor, let resolved = NewAPISiteFlavor(rawValue: flavor) {
+            return resolved
+        }
+        return (platformType ?? .newAPI) == .custom ? .generic : .newAPI
+    }
+
+    nonisolated var keywordOverrides: NewAPICheckInKeywordOverrides {
+        NewAPICheckInKeywordOverrides(
+            success: successKeywords ?? [],
+            already: alreadyKeywords ?? [],
+            expired: expiredKeywords ?? []
+        )
     }
 }
 

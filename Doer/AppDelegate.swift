@@ -19,6 +19,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         AppSettings.shared.installGlobalFontSupport()
         BackgroundNotificationRefreshService.shared.register()
         BackgroundNotificationRefreshService.shared.scheduleIfNeeded()
+        NewAPICheckInBackgroundService.shared.register()
+        NewAPICheckInBackgroundService.shared.scheduleNextRun()
         UNUserNotificationCenter.current().delegate = self
         APNsPushRegistration.register()
         MitmTrust.installWKWebViewHook()

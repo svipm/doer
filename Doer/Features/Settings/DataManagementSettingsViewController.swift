@@ -458,12 +458,45 @@ extension DataManagementSettingsViewController {
     }
 
     func exportPreferences() {
+        // The backup payload embeds NewAPI check-in tokens/cookies and the
+        // Notion integration token in plaintext. Warn before it leaves the
+        // sandbox and never leave the tmp copy behind after sharing.
+        let confirm = UIAlertController(
+            title: String(
+                localized: "settings.backup.export_confirm.title",
+                defaultValue: "导出包含凭据的备份？"
+            ),
+            message: String(
+                localized: "settings.backup.export_confirm.message",
+                defaultValue: "备份文件包含 NewAPI 签到与 Notion 集成的登录凭据（Token / Cookie）明文。请仅发送给可信接收方，分享完成后建议立即删除该文件。"
+            ),
+            preferredStyle: .alert
+        )
+        confirm.addAction(UIAlertAction(
+            title: String(localized: "settings.backup.export_confirm.proceed", defaultValue: "仍要导出"),
+            style: .default
+        ) { [weak self] _ in
+            self?.performPreferencesExport()
+        })
+        confirm.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+        present(confirm, animated: true)
+    }
+
+    private func performPreferencesExport() {
         do {
             let data = try settings.makePreferencesBackupData()
             let fileURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("Doer-Preferences-\(Self.backupTimestamp()).json")
             try data.write(to: fileURL, options: .atomic)
             let activity = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+            activity.completionWithItemsHandler = { [weak self] _, completed, _, _ in
+                try? FileManager.default.removeItem(at: fileURL)
+                guard completed, let self else { return }
+                DoerFeedback.presentToast(
+                    String(localized: "settings.backup.export_done", defaultValue: "备份已导出"),
+                    on: self
+                )
+            }
             activity.popoverPresentationController?.sourceView = view
             activity.popoverPresentationController?.sourceRect = view.bounds
             present(activity, animated: true)

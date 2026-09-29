@@ -8,6 +8,7 @@ final class ReadingSettingsViewController: ObservableViewController {
         case showSuggestedTopics
         case composerInstantRender
         case showUserSignatures
+        case readTimingReport
         case hideScrollIndicators
         case bottomBarAutoHide
         case openExternalLinksInAppBrowser
@@ -25,6 +26,7 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return String(localized: "settings.reading.suggested_topics", defaultValue: "相关话题推荐")
             case .composerInstantRender: return String(localized: "settings.reading.instant_render", defaultValue: "编辑器即时渲染")
             case .showUserSignatures: return String(localized: "settings.reading.signatures", defaultValue: "显示用户签名")
+            case .readTimingReport: return String(localized: "settings.reading.timing_report", defaultValue: "阅读进度上报")
             case .hideScrollIndicators: return String(localized: "settings.reading.hide_scroll_indicators")
             case .bottomBarAutoHide: return String(localized: "settings.reading.collapse_navigation")
             case .openExternalLinksInAppBrowser: return String(localized: "settings.reading.in_app_browser")
@@ -44,6 +46,10 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return String(localized: "settings.reading.suggested_topics.subtitle", defaultValue: "读到话题底部时展示相关话题")
             case .composerInstantRender: return String(localized: "settings.reading.instant_render.subtitle", defaultValue: "输入时即时显示 Markdown 样式（默认关闭）")
             case .showUserSignatures: return String(localized: "settings.reading.signatures.subtitle", defaultValue: "在帖子下方显示签名")
+            case .readTimingReport: return String(
+                localized: "settings.reading.timing_report.subtitle",
+                defaultValue: "向服务器上报已读位置。关闭后仅保留本地进度，可显著减少触发 Cloudflare 验证的次数"
+            )
             case .hideScrollIndicators: return String(localized: "settings.reading.hide_scroll_indicators.subtitle")
             case .bottomBarAutoHide: return String(localized: "settings.reading.collapse_navigation.subtitle")
             case .openExternalLinksInAppBrowser: return String(localized: "settings.reading.in_app_browser.subtitle")
@@ -66,6 +72,7 @@ final class ReadingSettingsViewController: ObservableViewController {
             case .showSuggestedTopics: return "text.bubble"
             case .composerInstantRender: return "textformat"
             case .showUserSignatures: return "signature"
+            case .readTimingReport: return "chart.bar"
             case .hideScrollIndicators: return "scroll"
             case .bottomBarAutoHide: return "arrow.up.and.down"
             case .openExternalLinksInAppBrowser: return "rectangle.portrait.and.arrow.right"
@@ -190,6 +197,7 @@ final class ReadingSettingsViewController: ObservableViewController {
         readingBody.addArrangedSubview(makeToggleRow(for: .showSuggestedTopics))
         readingBody.addArrangedSubview(makeToggleRow(for: .composerInstantRender))
         readingBody.addArrangedSubview(makeToggleRow(for: .showUserSignatures))
+        readingBody.addArrangedSubview(makeToggleRow(for: .readTimingReport))
         readingBody.addArrangedSubview(makeToggleRow(for: .hideScrollIndicators))
         contentStack.addArrangedSubview(verticalSection(
             title: String(localized: "settings.reading.section.reading"),
@@ -416,6 +424,8 @@ final class ReadingSettingsViewController: ObservableViewController {
             return settings.composerInstantRender
         case .showUserSignatures:
             return settings.showUserSignatures
+        case .readTimingReport:
+            return settings.readingTimingReportEnabled
         case .hideScrollIndicators:
             return settings.hideScrollIndicators
         case .bottomBarAutoHide:
@@ -449,6 +459,8 @@ final class ReadingSettingsViewController: ObservableViewController {
             settings.composerInstantRender = isOn
         case .showUserSignatures:
             settings.showUserSignatures = isOn
+        case .readTimingReport:
+            settings.readingTimingReportEnabled = isOn
         case .hideScrollIndicators:
             settings.hideScrollIndicators = isOn
         case .bottomBarAutoHide:

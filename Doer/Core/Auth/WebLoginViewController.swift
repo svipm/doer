@@ -277,6 +277,15 @@ final class WebLoginViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isMovingFromParent || isBeingDismissed {
+            // Cancel path: the observer must not stay pinned to the
+            // process-wide cookie store after the login screen is gone.
+            coordinator.detach(from: webView.configuration.websiteDataStore.httpCookieStore)
+        }
+    }
+
     private func handleCookiesReady(_ cookies: [HTTPCookie]) {
         Task { @MainActor in
             await WebCookieStore.shared.syncFromWebView(webView.configuration.websiteDataStore)
@@ -295,6 +304,7 @@ final class WebLoginViewController: UIViewController {
         private let onCookiesReady: ([HTTPCookie]) -> Void
         private let onCredentialsCaptured: (String, String) -> Void
         private(set) var didCallback = false
+        private var isObservingCookies = false
         weak var owner: WebLoginViewController?
 
         init(
@@ -309,6 +319,16 @@ final class WebLoginViewController: UIViewController {
 
         func attach(to dataStore: WKWebsiteDataStore) {
             dataStore.httpCookieStore.add(self)
+            isObservingCookies = true
+        }
+
+        /// WKHTTPCookieStore pins its observers for the store's lifetime, and
+        /// `.default()` is process-wide. Without this, one coordinator leaks
+        /// per login attempt and keeps waking on every cookie change.
+        func detach(from cookieStore: WKHTTPCookieStore) {
+            guard isObservingCookies else { return }
+            isObservingCookies = false
+            cookieStore.remove(self)
         }
 
         func webView(
@@ -327,6 +347,7 @@ final class WebLoginViewController: UIViewController {
                 let hasSession = relevant.contains { $0.name == "_t" }
                 guard hasSession || force else { return }
                 self.didCallback = true
+                self.detach(from: webView.configuration.websiteDataStore.httpCookieStore)
                 Task { @MainActor in
                     self.onCookiesReady(relevant)
                 }
@@ -342,6 +363,7 @@ final class WebLoginViewController: UIViewController {
                 let hasSession = relevant.contains { $0.name == "_t" }
                 guard hasSession else { return }
                 self.didCallback = true
+                self.detach(from: cookieStore)
                 self.onCookiesReady(relevant)
             }
         }

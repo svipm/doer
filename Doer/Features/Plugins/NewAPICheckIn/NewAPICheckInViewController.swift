@@ -240,6 +240,12 @@ final class NewAPICheckInViewController: UITableViewController {
             self?.presentManualAdd()
         })
         sheet.addAction(UIAlertAction(
+            title: String(localized: "plugins.newapi.generic_add", defaultValue: "通用/自建签到系统"),
+            style: .default
+        ) { [weak self] _ in
+            self?.presentManualAdd(isGeneric: true)
+        })
+        sheet.addAction(UIAlertAction(
             title: String(localized: "plugins.newapi.curl_import", defaultValue: "从 Curl 导入"),
             style: .default
         ) { [weak self] _ in
@@ -260,10 +266,15 @@ final class NewAPICheckInViewController: UITableViewController {
         navigationController?.pushViewController(controller, animated: true)
     }
 
-    private func presentManualAdd() {
+    private func presentManualAdd(isGeneric: Bool = false) {
         let alert = UIAlertController(
             title: String(localized: "plugins.newapi.add", defaultValue: "添加 NewAPI 平台"),
-            message: String(localized: "plugins.newapi.add.help", defaultValue: "实验版支持 Token、User ID 和 Cookie Header，凭证会保存到 Keychain。"),
+            message: isGeneric
+                ? String(
+                    localized: "plugins.newapi.add.generic_help",
+                    defaultValue: "适用于自建签到系统：填地址后，可在平台详情里编辑签到请求和自定义判定关键词。凭证保存到 Keychain。"
+                )
+                : String(localized: "plugins.newapi.add.help", defaultValue: "实验版支持 Token、User ID 和 Cookie Header，凭证会保存到 Keychain。"),
             preferredStyle: .alert
         )
         alert.addTextField { $0.placeholder = String(localized: "plugins.newapi.name", defaultValue: "名称") }
@@ -289,7 +300,7 @@ final class NewAPICheckInViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: String(localized: "common.cancel", defaultValue: "取消"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "common.save", defaultValue: "保存"), style: .default) { [weak self, weak alert] _ in
             guard let self, let fields = alert?.textFields else { return }
-            Task { await self.savePlatform(fields: fields) }
+            Task { await self.savePlatform(fields: fields, isGeneric: isGeneric) }
         })
         present(alert, animated: true)
     }
@@ -443,7 +454,7 @@ final class NewAPICheckInViewController: UITableViewController {
         present(alert, animated: true)
     }
 
-    private func savePlatform(fields: [UITextField]) async {
+    private func savePlatform(fields: [UITextField], isGeneric: Bool = false) async {
         let rawURL = fields.indices.contains(1) ? fields[1].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" : ""
         guard let url = normalizedPlatformURL(rawURL), let host = url.host else {
             presentError(String(localized: "plugins.newapi.invalid_url", defaultValue: "平台地址无效"))
@@ -456,7 +467,9 @@ final class NewAPICheckInViewController: UITableViewController {
                 return host
             }(),
             baseURL: url.absoluteString,
-            source: .manual
+            platformType: isGeneric ? .custom : .newAPI,
+            source: .manual,
+            flavor: isGeneric ? NewAPISiteFlavor.generic.rawValue : nil
         )
         let credential = NewAPICheckInCredential(
             accessToken: nonEmpty(fields[safe: 2]?.text),

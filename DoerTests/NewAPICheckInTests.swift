@@ -684,6 +684,245 @@ final class NewAPICheckInTests: XCTestCase {
         XCTAssertNil(NewAPICheckInLoginSupport.matchingPlatform(in: platforms, url: other))
     }
 
+    func testEndpointNegotiationRetriesAlternateRouteAndPersistsIt() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NewAPICheckInStore(
+            scope: PluginScope(baseURL: "https://linux.do", username: "sam"),
+            directoryURL: directory,
+            credentialVault: MemoryNewAPICredentialVault()
+        )
+        let platform = NewAPICheckInPlatform(name: "Fork", baseURL: "https://fork.example.com")
+        try await store.save(
+            platform,
+            credential: NewAPICheckInCredential(accessToken: "token-value", userID: "7")
+        )
+
+        MockNewAPIURLProtocol.handler = { request in
+            let statusCode = request.url?.path == "/api/user/checkin" ? 404 : 200
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = statusCode == 200
+                ? Data(#"{"success":true,"message":"签到成功"}"#.utf8)
+                : Data()
+            return (response, body)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockNewAPIURLProtocol.self]
+        let service = NewAPICheckInService(store: store, session: URLSession(configuration: configuration))
+
+        let result = await service.signIn(platform)
+        let storedPlatforms = await store.platforms()
+
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(storedPlatforms.first?.endpoint, "/api/user/check_in")
+    }
+
+    func testEndpointNegotiationSkipsCustomEndpoints() {
+        let custom = NewAPICheckInPlatform(
+            name: "Custom",
+            baseURL: "https://custom.example.com",
+            endpoint: "/my/own/checkin"
+        )
+        XCTAssertNil(
+            NewAPICheckInService.nextEndpointCandidate(
+                after: "/my/own/checkin",
+                flavor: custom.resolvedFlavor
+            )
+        )
+        let preset = NewAPICheckInPlatform(name: "Preset", baseURL: "https://api.example.com")
+        XCTAssertEqual(
+            NewAPICheckInService.nextEndpointCandidate(
+                after: "/api/user/checkin",
+                flavor: preset.resolvedFlavor
+            ),
+            "/api/user/check_in"
+        )
+        XCTAssertNil(
+            NewAPICheckInService.nextEndpointCandidate(
+                after: "/api/user/check_in",
+                flavor: preset.resolvedFlavor
+            )
+        )
+    }
+
+    func testClassifyHonorsCustomKeywordOverrides() {
+        let payload = Data(#"{"success":false,"message":"Done! +10 credits"}"#.utf8)
+        let withoutOverride = NewAPICheckInService.classify(
+            data: payload,
+            statusCode: 200,
+            durationMilliseconds: 10
+        )
+        XCTAssertEqual(withoutOverride.status, .unknown)
+
+        let withOverride = NewAPICheckInService.classify(
+            data: payload,
+            statusCode: 200,
+            durationMilliseconds: 10,
+            overrides: NewAPICheckInKeywordOverrides(success: ["Done!"], already: [], expired: [])
+        )
+        XCTAssertEqual(withOverride.status, .success)
+
+        let alreadyPayload = Data(#"{"success":false,"message":"Duplicate claim today"}"#.utf8)
+        let alreadyWithoutOverride = NewAPICheckInService.classify(
+            data: alreadyPayload,
+            statusCode: 200,
+            durationMilliseconds: 10
+        )
+        XCTAssertEqual(alreadyWithoutOverride.status, .unknown)
+        let alreadyResult = NewAPICheckInService.classify(
+            data: alreadyPayload,
+            statusCode: 200,
+            durationMilliseconds: 10,
+            overrides: NewAPICheckInKeywordOverrides(
+                success: [],
+                already: ["duplicate claim"],
+                expired: []
+            )
+        )
+        XCTAssertEqual(alreadyResult.status, .alreadySigned)
+    }
+
+    func testSiteFlavorDetectionFromStatusPayload() {
+        let newAPIBody = Data(
+            #"{"success":true,"data":{"version":"v0.8.3-new-api","system_name":"Example Relay","start_time":1700000000}}"#.utf8
+        )
+        let newAPIDetection = NewAPISiteFlavor.detection(fromStatusData: newAPIBody, statusCode: 200)
+        XCTAssertEqual(newAPIDetection?.flavor, .newAPI)
+        XCTAssertEqual(newAPIDetection?.systemName, "Example Relay")
+
+        let veloeraBody = Data(#"{"success":true,"data":{"version":"Veloera v1.2.0"}}"#.utf8)
+        XCTAssertEqual(NewAPISiteFlavor.detection(fromStatusData: veloeraBody, statusCode: 200)?.flavor, .veloera)
+
+        let oneAPIBody = Data(#"{"success":true,"data":{"version":"v1.0.0 one-api","start_time":1700000000}}"#.utf8)
+        XCTAssertEqual(NewAPISiteFlavor.detection(fromStatusData: oneAPIBody, statusCode: 200)?.flavor, .generic)
+
+        let notASite = Data(#"{"success":true,"data":{"hello":"world"}}"#.utf8)
+        XCTAssertNil(NewAPISiteFlavor.detection(fromStatusData: notASite, statusCode: 200))
+        XCTAssertNil(NewAPISiteFlavor.detection(fromStatusData: newAPIBody, statusCode: 403))
+    }
+
+    func testPlatformFlavorAndKeywordsRoundTripWithLegacyData() throws {
+        let platform = NewAPICheckInPlatform(
+            name: "Self-built",
+            baseURL: "https://checkin.example.com",
+            endpoint: "/my/checkin",
+            platformType: .custom,
+            flavor: NewAPISiteFlavor.generic.rawValue,
+            successKeywords: ["Done", "完成"],
+            alreadyKeywords: ["already"]
+        )
+        let encoded = try JSONEncoder().encode(platform)
+        let decoded = try JSONDecoder().decode(NewAPICheckInPlatform.self, from: encoded)
+        XCTAssertEqual(decoded.resolvedFlavor, .generic)
+        XCTAssertEqual(decoded.keywordOverrides.success, ["Done", "完成"])
+
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        for key in ["flavor", "successKeywords", "alreadyKeywords", "expiredKeywords"] {
+            legacyObject.removeValue(forKey: key)
+        }
+        let legacy = try JSONDecoder().decode(
+            NewAPICheckInPlatform.self,
+            from: JSONSerialization.data(withJSONObject: legacyObject)
+        )
+        XCTAssertEqual(legacy.resolvedFlavor, .generic)
+        XCTAssertTrue(legacy.keywordOverrides.isEmpty)
+    }
+
+    func testParseModelsResponseAcceptsStringArraysAndObjects() {
+        let stringPayload = Data(#"{"success":true,"data":["gpt-4o","claude-3.5-sonnet",""]}"#.utf8)
+        XCTAssertEqual(
+            NewAPICheckInService.parseModelsResponse(data: stringPayload, statusCode: 200),
+            ["gpt-4o", "claude-3.5-sonnet"]
+        )
+
+        let objectPayload = Data(
+            #"{"success":true,"data":[{"id":"gpt-4o"},{"model":"o3-mini"},{"id":42}]}"#.utf8
+        )
+        XCTAssertEqual(
+            NewAPICheckInService.parseModelsResponse(data: objectPayload, statusCode: 200),
+            ["gpt-4o", "o3-mini", "42"]
+        )
+
+        let failed = Data(#"{"success":false,"message":"unauthorized"}"#.utf8)
+        XCTAssertTrue(NewAPICheckInService.parseModelsResponse(data: failed, statusCode: 200).isEmpty)
+        XCTAssertTrue(NewAPICheckInService.parseModelsResponse(data: stringPayload, statusCode: 404).isEmpty)
+    }
+
+    func testFetchAvailableModelsSendsSessionCredentialAndParsesList() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NewAPICheckInStore(
+            scope: PluginScope(baseURL: "https://linux.do", username: "sam"),
+            directoryURL: directory,
+            credentialVault: MemoryNewAPICredentialVault()
+        )
+        let platform = NewAPICheckInPlatform(name: "Example", baseURL: "https://api.example.com")
+        try await store.save(
+            platform,
+            credential: NewAPICheckInCredential(
+                accessToken: "token-value",
+                userID: "7",
+                cookieHeader: "session=cookie-value"
+            )
+        )
+
+        MockNewAPIURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api.example.com/api/user/models")
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-value")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "New-Api-User"), "7")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "session=cookie-value")
+            let body = Data(#"{"success":true,"data":["gpt-4o","deepseek-chat"]}"#.utf8)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockNewAPIURLProtocol.self]
+        let service = NewAPICheckInService(store: store, session: URLSession(configuration: configuration))
+
+        let result = await service.fetchAvailableModels(platform)
+
+        XCTAssertEqual(result.models, ["gpt-4o", "deepseek-chat"])
+        XCTAssertNil(result.message)
+    }
+
+    func testRefreshAccountPersistsBalanceUsageAndRequestCount() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = NewAPICheckInStore(
+            scope: PluginScope(baseURL: "https://linux.do", username: "sam"),
+            directoryURL: directory,
+            credentialVault: MemoryNewAPICredentialVault()
+        )
+        let platform = NewAPICheckInPlatform(name: "Example", baseURL: "https://api.example.com")
+        try await store.save(platform)
+
+        MockNewAPIURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/user/self")
+            let body = Data(
+                #"{"success":true,"data":{"id":7,"quota":1000000,"used_quota":2500000,"request_count":1234}}"#.utf8
+            )
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockNewAPIURLProtocol.self]
+        let service = NewAPICheckInService(store: store, session: URLSession(configuration: configuration))
+
+        let result = await service.refreshAccount(platform)
+        let storedPlatforms = await store.platforms()
+
+        XCTAssertTrue(result.isLoggedIn)
+        XCTAssertEqual(storedPlatforms.first?.lastQuotaValue, 1_000_000)
+        XCTAssertEqual(storedPlatforms.first?.lastUsedQuota, 2_500_000)
+        XCTAssertEqual(storedPlatforms.first?.lastRequestCount, 1_234)
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("newapi-checkin-tests-\(UUID().uuidString)", isDirectory: true)

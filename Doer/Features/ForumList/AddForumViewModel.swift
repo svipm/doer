@@ -25,6 +25,17 @@ final class AddForumViewModel: DoerObservableObject {
             return false
         }
 
+        // Forum login sends the account password and the `_t` session ticket
+        // over this origin; plaintext HTTP would expose both on the wire.
+        guard normalized.lowercased().hasPrefix("https://") else {
+            errorMessage = String(
+                localized: "add_forum.error.insecure_url",
+                defaultValue: "不支持 http:// 地址：登录凭据会明文传输，请使用 https:// 站点。"
+            )
+            notifyChanged()
+            return false
+        }
+
         isLoading = true
         errorMessage = nil
         notifyChanged()

@@ -90,6 +90,7 @@ extension AppSettings {
                 autoPanguSpacing: autoPanguSpacing,
                 clipboardTopicLinkPromptEnabled: clipboardTopicLinkPromptEnabled,
                 showUserSignatures: showUserSignatures,
+                readingTimingReportEnabled: readingTimingReportEnabled,
                 nestedReplyViewEnabled: nestedReplyViewEnabled,
                 showTopicFilterHint: showTopicFilterHint,
                 showTopicCardExcerpt: showTopicCardExcerpt,
@@ -256,6 +257,9 @@ extension AppSettings {
         }
         if let value = preferences.showUserSignatures {
             showUserSignatures = value
+        }
+        if let value = preferences.readingTimingReportEnabled {
+            readingTimingReportEnabled = value
         }
         if let value = preferences.nestedReplyViewEnabled {
             nestedReplyViewEnabled = value
@@ -463,6 +467,7 @@ extension AppSettings {
         let autoPanguSpacing: Bool?
         let clipboardTopicLinkPromptEnabled: Bool?
         let showUserSignatures: Bool?
+        let readingTimingReportEnabled: Bool?
         let nestedReplyViewEnabled: Bool?
         let showTopicFilterHint: Bool?
         let showTopicCardExcerpt: Bool?

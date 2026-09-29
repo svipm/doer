@@ -9,6 +9,7 @@ final class NewAPICheckInRuntime {
     )
 
     private static let autoReloginDefaultsKey = "plugin.newapi.auto_relogin"
+    private static let autoCheckInDefaultsKey = "plugin.newapi.auto_checkin"
 
     /// 登录失效时是否自动打开登录页刷新 Cookie（默认开启，站点 Cookie 常几小时就过期）。
     static var autoReloginEnabled: Bool {
@@ -17,6 +18,16 @@ final class NewAPICheckInRuntime {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: autoReloginDefaultsKey)
+        }
+    }
+
+    /// 是否允许系统在后台空闲时自动执行全部签到（默认关闭，需要用户显式开启）。
+    static var autoCheckInEnabled: Bool {
+        get {
+            UserDefaults.standard.object(forKey: autoCheckInDefaultsKey) as? Bool ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: autoCheckInDefaultsKey)
         }
     }
 

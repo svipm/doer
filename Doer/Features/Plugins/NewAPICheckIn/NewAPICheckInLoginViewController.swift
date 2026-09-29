@@ -182,6 +182,8 @@ final class NewAPICheckInLoginViewController: UIViewController, WKNavigationDele
     private let store: NewAPICheckInStore
     private let service: NewAPICheckInService
     private let existingPlatform: NewAPICheckInPlatform?
+    /// Site preset from the auto-detector (nil = legacy default newAPI).
+    private let flavor: NewAPISiteFlavor?
     private let onSaved: () -> Void
 
     private lazy var webView: WKWebView = {
@@ -213,6 +215,7 @@ final class NewAPICheckInLoginViewController: UIViewController, WKNavigationDele
         store: NewAPICheckInStore,
         service: NewAPICheckInService,
         existingPlatform: NewAPICheckInPlatform? = nil,
+        flavor: NewAPISiteFlavor? = nil,
         onSaved: @escaping () -> Void
     ) {
         self.baseURL = baseURL
@@ -220,6 +223,7 @@ final class NewAPICheckInLoginViewController: UIViewController, WKNavigationDele
         self.store = store
         self.service = service
         self.existingPlatform = existingPlatform
+        self.flavor = flavor
         self.onSaved = onSaved
         super.init(nibName: nil, bundle: nil)
     }
@@ -563,7 +567,8 @@ final class NewAPICheckInLoginViewController: UIViewController, WKNavigationDele
             name: baseURL.host ?? baseURL.absoluteString,
             baseURL: probeBase.absoluteString,
             platformType: mode == .newAPI ? .newAPI : .custom,
-            source: .webView
+            source: .webView,
+            flavor: flavor?.rawValue
         )
         if let existingPlatform,
            let latest = await store.platforms().first(where: { $0.id == existingPlatform.id }) {

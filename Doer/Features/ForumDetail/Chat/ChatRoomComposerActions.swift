@@ -184,7 +184,7 @@ final class ChatRoomComposerController: NSObject,
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("jpg")
         do {
-            try data.write(to: url)
+            try data.write(to: url, options: .atomic)
             await uploadFile(url: url, filename: filename)
         } catch {
             presentError(error)

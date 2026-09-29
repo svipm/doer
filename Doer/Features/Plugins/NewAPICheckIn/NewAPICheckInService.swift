@@ -26,16 +26,65 @@ actor NewAPICheckInService {
             return result
         }
 
-        let result: NewAPICheckInResult
+        var currentPlatform = platform
+        var result = await execute(request: request, startedAt: startedAt, overrides: platform.keywordOverrides)
+
+        // Forks disagree on the check-in route ("/api/user/checkin" vs
+        // "/api/user/check_in"). When a preset route 404s/405s, try the next
+        // candidate once and persist the working endpoint so later sign-ins
+        // skip the probing. Custom endpoints are never renegotiated.
+        if Self.isMissingEndpoint(result),
+           let candidate = Self.nextEndpointCandidate(after: currentPlatform.endpoint, flavor: currentPlatform.resolvedFlavor) {
+            currentPlatform.endpoint = candidate
+            if let retryRequest = Self.buildRequest(platform: currentPlatform, credential: credential) {
+                let retryResult = await execute(
+                    request: retryRequest,
+                    startedAt: startedAt,
+                    overrides: platform.keywordOverrides
+                )
+                if !Self.isMissingEndpoint(retryResult) {
+                    result = retryResult
+                    try? await store.updateExisting(platformID: platform.id) { updated in
+                        updated.endpoint = candidate
+                    }
+                }
+            }
+        }
+        try? await store.record(result, for: platform.id)
+        return result
+    }
+
+    /// Negotiation order for preset endpoints; nil when the endpoint is
+    /// user-customized (not one of the flavor candidates) or already last.
+    nonisolated static func nextEndpointCandidate(
+        after endpoint: String,
+        flavor: NewAPISiteFlavor
+    ) -> String? {
+        let candidates = flavor.checkInEndpointCandidates
+        guard let index = candidates.firstIndex(of: endpoint) else { return nil }
+        let next = candidates.index(after: index)
+        return next < candidates.endIndex ? candidates[next] : nil
+    }
+
+    nonisolated static func isMissingEndpoint(_ result: NewAPICheckInResult) -> Bool {
+        result.statusCode == 404 || result.statusCode == 405
+    }
+
+    private func execute(
+        request: URLRequest,
+        startedAt: Date,
+        overrides: NewAPICheckInKeywordOverrides
+    ) async -> NewAPICheckInResult {
         do {
             let (data, response) = try await session.data(for: request)
-            result = Self.classify(
+            return Self.classify(
                 data: data,
                 statusCode: (response as? HTTPURLResponse)?.statusCode,
-                durationMilliseconds: milliseconds(since: startedAt)
+                durationMilliseconds: milliseconds(since: startedAt),
+                overrides: overrides
             )
         } catch {
-            result = NewAPICheckInResult(
+            return NewAPICheckInResult(
                 status: .serverError,
                 statusCode: nil,
                 message: error.localizedDescription,
@@ -45,15 +94,13 @@ actor NewAPICheckInService {
                 quotaUnit: nil
             )
         }
-        try? await store.record(result, for: platform.id)
-        return result
     }
 
     func refreshAuthentication(
         _ platform: NewAPICheckInPlatform,
         cookieHeaderOverride: String? = nil
     ) async -> NewAPICheckInAuthRefreshResult {
-        guard (platform.platformType ?? .newAPI) == .newAPI,
+        guard platform.resolvedFlavor.supportsAuthRefresh,
               let baseURL = URL(string: platform.baseURL)
         else {
             return .unavailable
@@ -182,13 +229,105 @@ actor NewAPICheckInService {
                 accessToken: credential?.accessToken
             )
         )
-        if result.isLoggedIn, let quotaValue = result.quotaValue {
+        if result.isLoggedIn {
             try? await store.updateExisting(platformID: platform.id) { updated in
-                updated.lastQuotaValue = quotaValue
-                updated.lastQuotaUnit = result.quotaUnit
+                if let quotaValue = result.quotaValue {
+                    updated.lastQuotaValue = quotaValue
+                    updated.lastQuotaUnit = result.quotaUnit
+                }
+                if let usedQuota = result.usedQuota {
+                    updated.lastUsedQuota = usedQuota
+                }
+                if let requestCount = result.requestCount {
+                    updated.lastRequestCount = requestCount
+                }
             }
         }
         return result
+    }
+
+    // MARK: - Available models
+
+    func fetchAvailableModels(_ platform: NewAPICheckInPlatform) async -> NewAPICheckInModelsResult {
+        guard let baseURL = URL(string: platform.baseURL) else {
+            return NewAPICheckInModelsResult(
+                models: [],
+                message: String(localized: "plugins.newapi.invalid_url", defaultValue: "平台地址无效")
+            )
+        }
+        let credential = try? await store.credential(for: platform.id)
+        guard let request = Self.buildModelsRequest(baseURL: baseURL, credential: credential) else {
+            return NewAPICheckInModelsResult(
+                models: [],
+                message: String(localized: "plugins.newapi.invalid_url", defaultValue: "平台地址无效")
+            )
+        }
+        do {
+            let (data, response) = try await session.data(for: request)
+            let models = Self.parseModelsResponse(
+                data: data,
+                statusCode: (response as? HTTPURLResponse)?.statusCode
+            )
+            if models.isEmpty {
+                return NewAPICheckInModelsResult(
+                    models: [],
+                    message: String(
+                        localized: "plugins.newapi.models.unsupported",
+                        defaultValue: "该站点未返回可用模型列表，可能不支持此查询。"
+                    )
+                )
+            }
+            return NewAPICheckInModelsResult(models: models, message: nil)
+        } catch {
+            return NewAPICheckInModelsResult(models: [], message: error.localizedDescription)
+        }
+    }
+
+    nonisolated static func buildModelsRequest(
+        baseURL: URL,
+        credential: NewAPICheckInCredential?
+    ) -> URLRequest? {
+        guard let url = URL(string: "/api/user/models", relativeTo: baseURL)?.absoluteURL else {
+            return nil
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue(NewAPISiteFlavor.defaultUserAgent, forHTTPHeaderField: "User-Agent")
+        if let userID = credential?.userID, !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "New-Api-User")
+        }
+        if let accessToken = credential?.accessToken, !accessToken.isEmpty {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let cookieHeader = credential?.cookieHeader, !cookieHeader.isEmpty {
+            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        credential?.additionalHeaders.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        return request
+    }
+
+    /// Accepts both `{"data": ["model-a", ...]}` (new-api family) and
+    /// OpenAI-style `{"data": [{"id": "..."}]}` objects as a fallback.
+    nonisolated static func parseModelsResponse(data: Data, statusCode: Int?) -> [String] {
+        guard statusCode == 200,
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (json["success"] as? Bool) == true || (json["code"] as? Int) == 0
+        else { return [] }
+        let values = json["data"]
+        if let names = values as? [String] {
+            return names.filter { !$0.isEmpty }
+        }
+        if let objects = values as? [[String: Any]] {
+            return objects.compactMap { object -> String? in
+                if let id = object["id"] as? String, !id.isEmpty { return id }
+                if let model = object["model"] as? String, !model.isEmpty { return model }
+                if let id = object["id"] as? Int { return String(id) }
+                return nil
+            }
+        }
+        return []
     }
 
     func probeLogin(
@@ -440,26 +579,33 @@ actor NewAPICheckInService {
     nonisolated static func classify(
         data: Data,
         statusCode: Int?,
-        durationMilliseconds: Int
+        durationMilliseconds: Int,
+        overrides: NewAPICheckInKeywordOverrides = .empty
     ) -> NewAPICheckInResult {
         let raw = String(data: data, encoding: .utf8)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let message = extractMessage(json)
         let lowered = message?.lowercased() ?? ""
 
-        if statusCode == 401 || statusCode == 403 || containsAny(lowered, values: ["未登录", "请先登录", "unauthorized", "login required"]) {
+        // Custom keywords extend the built-in heuristics so self-built
+        // systems can express their own response vocabulary.
+        let expiredWords = ["未登录", "请先登录", "unauthorized", "login required"] + overrides.expired
+        let alreadyWords = ["已签到", "已经签到", "重复签到", "already"] + overrides.already
+
+        if statusCode == 401 || statusCode == 403 || containsAny(lowered, values: expiredWords) {
             return result(.authenticationExpired, statusCode, message, raw, durationMilliseconds, nil)
         }
         if let statusCode, statusCode >= 500 {
             return result(.serverError, statusCode, message ?? "HTTP \(statusCode)", raw, durationMilliseconds, nil)
         }
-        if containsAny(lowered, values: ["已签到", "已经签到", "重复签到", "already"]) {
+        if containsAny(lowered, values: alreadyWords) {
             return result(.alreadySigned, statusCode, message, raw, durationMilliseconds, nil)
         }
         let success = (json?["success"] as? Bool) == true
             || (json?["code"] as? Int) == 0
             || lowered.contains("成功")
             || lowered.contains("success")
+            || overrides.success.contains { lowered.contains($0.lowercased()) }
         let quota = extractQuota(json)
         if success {
             return result(.success, statusCode, message ?? "签到成功", raw, durationMilliseconds, quota)

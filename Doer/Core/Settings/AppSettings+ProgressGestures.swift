@@ -150,6 +150,17 @@ extension AppSettings {
         }
     }
 
+    /// Whether to report read progress to the server (`POST /topics/timings`).
+    /// Off keeps local read styling / resume position (TopicReadProgressStore)
+    /// and skips the background POST that most often draws a CF challenge.
+    var readingTimingReportEnabled: Bool {
+        get { bool(forKey: "readingTimingReportEnabled", defaultValue: true) }
+        set {
+            defaults.set(newValue, forKey: "readingTimingReportEnabled")
+            notifyChanged()
+        }
+    }
+
     /// FluxDo-style instant markdown chrome while typing in composers.
     var composerInstantRender: Bool {
         get { bool(forKey: "composerInstantRender", defaultValue: false) }

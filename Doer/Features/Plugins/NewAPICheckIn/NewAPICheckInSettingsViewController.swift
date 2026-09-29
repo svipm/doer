@@ -35,7 +35,7 @@ final class NewAPICheckInSettingsViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
-        case .checkIn: return 1
+        case .checkIn: return 2
         case .tabs: return 2
         case .about: return 1
         case nil: return 0
@@ -60,7 +60,7 @@ final class NewAPICheckInSettingsViewController: UITableViewController {
         case .checkIn:
             return String(
                 localized: "plugins.newapi.auto_relogin.help",
-                defaultValue: "登录失效时自动打开登录页刷新 Cookie"
+                defaultValue: "登录失效时自动打开登录页刷新 Cookie；后台自动签到由系统择机执行，受调度限制每天约一次，需要重登的平台会被跳过。"
             )
         case .tabs:
             return String(
@@ -81,17 +81,32 @@ final class NewAPICheckInSettingsViewController: UITableViewController {
 
         switch Section(rawValue: indexPath.section) {
         case .checkIn:
-            content.text = String(localized: "plugins.newapi.auto_relogin", defaultValue: "自动重新登录")
-            content.image = UIImage(systemName: "arrow.triangle.2.circlepath")
-            content.imageProperties.tintColor = AppSettings.shared.themeStyle.accentColor
-            let toggle = UISwitch()
-            toggle.isOn = NewAPICheckInRuntime.autoReloginEnabled
-            toggle.onTintColor = AppSettings.shared.themeStyle.accentColor
-            toggle.addAction(UIAction { action in
-                guard let switchControl = action.sender as? UISwitch else { return }
-                NewAPICheckInRuntime.autoReloginEnabled = switchControl.isOn
-            }, for: .valueChanged)
-            cell.accessoryView = toggle
+            if indexPath.row == 0 {
+                content.text = String(localized: "plugins.newapi.auto_relogin", defaultValue: "自动重新登录")
+                content.image = UIImage(systemName: "arrow.triangle.2.circlepath")
+                content.imageProperties.tintColor = AppSettings.shared.themeStyle.accentColor
+                let toggle = UISwitch()
+                toggle.isOn = NewAPICheckInRuntime.autoReloginEnabled
+                toggle.onTintColor = AppSettings.shared.themeStyle.accentColor
+                toggle.addAction(UIAction { action in
+                    guard let switchControl = action.sender as? UISwitch else { return }
+                    NewAPICheckInRuntime.autoReloginEnabled = switchControl.isOn
+                }, for: .valueChanged)
+                cell.accessoryView = toggle
+            } else {
+                content.text = String(localized: "plugins.newapi.auto_checkin", defaultValue: "后台自动签到")
+                content.image = UIImage(systemName: "clock.arrow.circlepath")
+                content.imageProperties.tintColor = AppSettings.shared.themeStyle.accentColor
+                let toggle = UISwitch()
+                toggle.isOn = NewAPICheckInRuntime.autoCheckInEnabled
+                toggle.onTintColor = AppSettings.shared.themeStyle.accentColor
+                toggle.addAction(UIAction { action in
+                    guard let switchControl = action.sender as? UISwitch else { return }
+                    NewAPICheckInRuntime.autoCheckInEnabled = switchControl.isOn
+                    NewAPICheckInBackgroundService.shared.scheduleNextRun()
+                }, for: .valueChanged)
+                cell.accessoryView = toggle
+            }
 
         case .tabs:
             if indexPath.row == 0 {

@@ -91,6 +91,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) {
 //        ProxyManager.shared.stop()
         BackgroundNotificationRefreshService.shared.scheduleIfNeeded()
+        NewAPICheckInBackgroundService.shared.scheduleNextRun()
     }
 
     private func scheduleForegroundSessionRefresh() {
