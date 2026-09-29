@@ -87,12 +87,21 @@ final class ChatBrowseChannelsViewController: UIViewController, UITableViewDataS
         }
     }
 
+    private var loadGeneration = 0
+
     private func load(filter: String?) async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
         emptyLabel.isHidden = true
         do {
-            channels = try await api.browseChatChannels(filter: filter)
+            let loaded = try await api.browseChatChannels(filter: filter)
+            // The debounced search only cancels its sleep — the network task
+            // keeps running, so a slow older response must not win.
+            guard generation == loadGeneration else { return }
+            channels = loaded
         } catch {
+            guard generation == loadGeneration else { return }
             channels = []
             emptyLabel.isHidden = false
             emptyLabel.text = error.localizedDescription

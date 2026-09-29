@@ -342,23 +342,30 @@ struct ForumNotificationRoute: Equatable {
 final class ForumNotificationRouteStore: DoerObservableObject {
     static let shared = ForumNotificationRouteStore()
 
-    private(set) var pendingRoute: ForumNotificationRoute?
+    private(set) var pendingRoutes: [ForumNotificationRoute] = []: ForumNotificationRoute
 
     private override init() {
         super.init()
     }
 
     func enqueue(_ route: ForumNotificationRoute) {
-        pendingRoute = route
+        // Bounded FIFO: two notifications tapped in quick succession used to
+        // overwrite each other (last-wins single slot).
+        pendingRoutes.append(route)
+        if pendingRoutes.count > 3 { pendingRoutes.removeFirst() }
         notifyChanged()
     }
 
+    /// Peek without consuming (used to resolve the target forum first).
+    func pendingRouteForAnyForum() -> ForumNotificationRoute? {
+        pendingRoutes.first
+    }
+
     func consume(baseURL: String) -> ForumNotificationRoute? {
-        guard let pendingRoute,
-              normalizedBaseURL(pendingRoute.baseURL) == normalizedBaseURL(baseURL)
-        else { return nil }
-        self.pendingRoute = nil
-        return pendingRoute
+        guard let index = pendingRoutes.firstIndex(where: {
+            normalizedBaseURL($0.baseURL) == normalizedBaseURL(baseURL)
+        }) else { return nil }
+        return pendingRoutes.remove(at: index)
     }
 
     private func normalizedBaseURL(_ value: String) -> String {
@@ -377,7 +384,7 @@ enum ForumNotificationRoutePresenter {
     }
 
     static func presentPendingRouteIfNeeded(in window: UIWindow) {
-        guard let route = ForumNotificationRouteStore.shared.pendingRoute else { return }
+        guard let route = ForumNotificationRouteStore.shared.pendingRouteForAnyForum() else { return }
         let targetBaseURL = ForumInstance.normalizedBaseURL(route.baseURL)
 
         // Same forum already visible — push into that container (don't rely on Combine race).

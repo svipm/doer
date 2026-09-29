@@ -27,7 +27,6 @@ private final class TagTopicsViewModel: DoerObservableObject {
 
     func loadTopics() async {
         isLoading = true
-        currentPage = 0
         notifyChanged()
         defer {
             isLoading = false
@@ -39,7 +38,8 @@ private final class TagTopicsViewModel: DoerObservableObject {
             let result = try await api.fetchTagTopics(name: tagName, page: 0)
             topics = result.topicList.topics
             canLoadMore = result.topicList.moreTopicsUrl != nil
-            indexUsers(result.users)
+            indexUsers
+            currentPage = 0(result.users)
         } catch {
             if AuthSessionInvalidationPolicy.shouldInvalidateWebSession(error: error, baseURL: api.baseURL) {
                 clearProtectedContent(invalidateSession: true)
@@ -50,7 +50,9 @@ private final class TagTopicsViewModel: DoerObservableObject {
     }
 
     func loadMoreTopics() async {
-        guard canLoadMore, !isLoadingMore else { return }
+        // A full refresh owns the list while it runs; a load-more racing it
+        // would advance the cursor past the refreshed page 0 and skip a page.
+        guard canLoadMore, !isLoading, !isLoadingMore else { return }
         guard await validateTopicAccess() else { return }
         isLoadingMore = true
         notifyChanged()

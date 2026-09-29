@@ -208,7 +208,9 @@ final class ChatChannelsViewController: ObservableViewController {
         } catch {
             guard generation == loadGeneration else { return }
             errorMessage = error.localizedDescription
-            channelList = nil
+            // Keep the previously loaded channels — a transient refresh error
+            // blanking the whole list reads as data loss. The error surfaces
+            // for first-load failures (channelList still nil).
         }
         isLoading = false
         updateUI()

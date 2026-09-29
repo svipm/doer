@@ -120,15 +120,12 @@ final class AuthManager: DoerObservableObject, @unchecked Sendable {
 
     func logout(forum: ForumInstance) {
         let baseURL = normalizedBaseURL(forum.baseURL)
+        let username = usernameCache[baseURL]
+        let api = DiscourseAPI(baseURL: baseURL)
 
-        if let username = usernameCache[baseURL] {
-            let api = DiscourseAPI(baseURL: baseURL)
-            Task { await api.deleteSession(username: username) }
-        }
-
+        // Local teardown first — the UI reflects the logout immediately.
         KeychainHelper.deleteLegacyCredential(for: baseURL)
         KeychainHelper.deleteLegacyRSAKeyPair(for: baseURL)
-        WebCookieStore.shared.clearCookies(for: baseURL)
         MeProfileCacheStore.clear(baseURL: baseURL)
         ForumLocalNotificationPresenter.shared.removeApplicationBadge(baseURL: baseURL)
         BackgroundTopicUpdateStore.shared.clear(baseURL: baseURL)
@@ -139,6 +136,19 @@ final class AuthManager: DoerObservableObject, @unchecked Sendable {
         forumToUpdate.username = nil
         _ = try? DatabaseManager.shared.saveForum(&forumToUpdate)
         notifyChanged()
+
+        // The server-side invalidation MUST run while `_t` is still in the
+        // jar: the request adapts cookies from the jar at send time, and the
+        // old fire-and-forget ordering raced the synchronous cookie cleanup
+        // below it — DELETE went out unauthenticated and the server session
+        // survived the logout. Clear the jar only after the server has seen
+        // the invalidation.
+        Task { @MainActor in
+            if let username {
+                await api.deleteSession(username: username)
+            }
+            WebCookieStore.shared.clearCookies(for: baseURL)
+        }
     }
 
     func invalidateWebSession(for baseURL: String) {

@@ -223,7 +223,14 @@ final class ForumContainerViewController: UIViewController, AuthGating {
         ) { [weak self] _ in
             self?.didPresentRemoteLogoutAlert = false
         })
-        present(alert, animated: true)
+        // A CF sheet / login page is often on screen when the session dies;
+        // presenting during its dismissal animation is rejected by UIKit and
+        // used to swallow the alert forever (the latch above only reset from
+        // the alert's own buttons). Wait out the dismissal and try again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+            guard let self, !didPresentRemoteLogoutAlert else { return }
+            self.present(alert, animated: true)
+        }
     }
 
     private func startObservingCloudflareChallenges() {

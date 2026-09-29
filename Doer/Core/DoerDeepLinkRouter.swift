@@ -141,18 +141,20 @@ enum DoerInAppRoute: Equatable {
 @MainActor
 final class DoerInAppRouteStore: DoerObservableObject {
     static let shared = DoerInAppRouteStore()
-    private(set) var pending: DoerInAppRoute?
+    private(set) var pending: [DoerInAppRoute] = []
 
     private override init() { super.init() }
 
     func enqueue(_ route: DoerInAppRoute) {
-        pending = route
+        pending.append(route)
+        if pending.count > 3 { pending.removeFirst() }
         notifyChanged()
     }
 
     func consume() -> DoerInAppRoute? {
-        defer { pending = nil }
-        return pending
+        guard !pending.isEmpty else { return nil }
+        defer { pending.removeFirst() }
+        return pending.first
     }
 }
 
