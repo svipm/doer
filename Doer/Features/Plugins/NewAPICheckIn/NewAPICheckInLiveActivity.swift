@@ -40,8 +40,10 @@ enum NewAPICheckInLiveActivity {
         failed: Int
     ) {
         guard #available(iOS 16.2, *) else { return }
-        let content = ActivityContent(
-            state: .init(
+        // Explicit generic parameter: a bare `ActivityContent(state:staleDate:)`
+        // local has no context to infer the state type from.
+        let content = ActivityContent<NewAPICheckInActivityAttributes.ContentState>(
+            state: NewAPICheckInActivityAttributes.ContentState(
                 completed: completed,
                 succeeded: succeeded,
                 alreadySigned: alreadySigned,
@@ -63,8 +65,8 @@ enum NewAPICheckInLiveActivity {
         failed: Int
     ) {
         guard #available(iOS 16.2, *) else { return }
-        let content = ActivityContent(
-            state: .init(
+        let content = ActivityContent<NewAPICheckInActivityAttributes.ContentState>(
+            state: NewAPICheckInActivityAttributes.ContentState(
                 completed: completed,
                 succeeded: succeeded,
                 alreadySigned: alreadySigned,
