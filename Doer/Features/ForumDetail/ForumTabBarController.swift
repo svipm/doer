@@ -81,7 +81,21 @@ final class ForumTabBarController: UITabBarController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard !isAnimatingScrollTabBar else { return }
+        if isAnimatingScrollTabBar {
+            // Interrupted-animation watchdog. Tapping into a topic while the
+            // bar's scroll show/hide animation is still in flight can drop
+            // its completion, leaving `isAnimatingScrollTabBar` stuck true
+            // with the bar fully visible — which then covers the pushed
+            // detail forever, because this very guard disabled the
+            // reconciler below. In a hides-bottom-bar context any in-flight
+            // scroll animation is already obsolete: drop it and reconcile.
+            if shouldHideTabBarForCurrentContent {
+                scrollTabBarAnimationID += 1
+                isAnimatingScrollTabBar = false
+            } else {
+                return
+            }
+        }
         applyCurrentTabBarLayout()
     }
 
