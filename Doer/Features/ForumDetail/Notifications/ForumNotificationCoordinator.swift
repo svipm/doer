@@ -342,7 +342,7 @@ struct ForumNotificationRoute: Equatable {
 final class ForumNotificationRouteStore: DoerObservableObject {
     static let shared = ForumNotificationRouteStore()
 
-    private(set) var pendingRoutes: [ForumNotificationRoute] = []: ForumNotificationRoute
+    private(set) var pendingRoutes: [ForumNotificationRoute] = []
 
     private override init() {
         super.init()
