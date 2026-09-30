@@ -1344,6 +1344,12 @@ class ChatTopicDetailViewController: ObservableViewController {
 
 // MARK: - Cloudflare recovery
 
+    /// Mirrors the classic detail: reconcile the host tab bar with the current
+    /// content (pushed detail ⇒ hidden) whenever this screen appears.
+    func syncOwningTabBarVisibility() {
+        (tabBarController as? ForumTabBarController)?.syncTabBarVisibilityForCurrentContent()
+    }
+
     /// A post action (like / reaction) that failed with a Cloudflare challenge.
     /// Re-run once verification completes so the user doesn't have to tap again.
     private var pendingCloudflareActionRetry: (() async -> Void)?
@@ -1352,9 +1358,34 @@ class ChatTopicDetailViewController: ObservableViewController {
         (error as? DiscourseAPIError)?.isCloudflareChallenge == true
     }
 
+    /// Same idea for bookmark toggles.
+    private var pendingCloudflareBookmarkRetry: (() async -> Void)?
+
     private func stashCloudflareActionRetry(postId: Int, reactionId: String) {
         pendingCloudflareActionRetry = { [weak self] in
             await self?.retryToggleReaction(postId: postId, reactionId: reactionId)
+        }
+    }
+
+    private func stashCloudflareBookmarkRetry(postId: Int, shouldBookmark: Bool) {
+        pendingCloudflareBookmarkRetry = { [weak self] in
+            await self?.retryToggleBookmark(postId: postId, shouldBookmark: shouldBookmark)
+        }
+    }
+
+    private func retryToggleBookmark(postId: Int, shouldBookmark: Bool) async {
+        do {
+            if shouldBookmark {
+                let response = try await api.createBookmark(postId: postId)
+                viewModel.updatePostBookmark(postId: postId, bookmarked: true, bookmarkId: response.id)
+            } else if let post = viewModel.posts.first(where: { $0.id == postId }),
+                      let bookmarkId = post.bookmarkId {
+                try await api.deleteBookmark(id: bookmarkId)
+                viewModel.updatePostBookmark(postId: postId, bookmarked: false, bookmarkId: nil)
+            }
+            reloadPostCell(postId: postId)
+        } catch {
+            showPostActionError(error)
         }
     }
 
@@ -1474,6 +1505,10 @@ class ChatTopicDetailViewController: ObservableViewController {
             // is synchronous and cannot await.
             if let retry = self.pendingCloudflareActionRetry {
                 self.pendingCloudflareActionRetry = nil
+                await retry()
+            }
+            if let retry = self.pendingCloudflareBookmarkRetry {
+                self.pendingCloudflareBookmarkRetry = nil
                 await retry()
             }
         }
@@ -1748,7 +1783,7 @@ extension ChatTopicDetailViewController: WeChatChatPostCellDelegate {
                     self.reloadPostCell(postId: post.id)
                     self.showPostActionError(error)
                     if Self.isCloudflareChallengeError(error) {
-                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                        self.stashCloudflareBookmarkRetry(postId: post.id, shouldBookmark: shouldBookmark)
                     }
                 }
             }
@@ -1864,7 +1899,7 @@ extension ChatTopicDetailViewController: PostCellDelegate {
                     self.reloadPostCell(postId: post.id)
                     self.showPostActionError(error)
                     if Self.isCloudflareChallengeError(error) {
-                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                        self.stashCloudflareBookmarkRetry(postId: post.id, shouldBookmark: shouldBookmark)
                     }
                 }
             }
