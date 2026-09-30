@@ -58,8 +58,11 @@ final class ForumBottomBarTabTests: XCTestCase {
         XCTAssertEqual(keys.map(\.0), AppSettings.ForumDynamicTabItem.allCases)
 
         for (item, key) in keys {
-            let english = String(localized: String.LocalizationValue(key), locale: Locale(identifier: "en"))
-            let chinese = String(localized: String.LocalizationValue(key), locale: Locale(identifier: "zh-Hans"))
+            let english = LocalizationCatalog.value(for: key, locale: "en")
+            let chinese = LocalizationCatalog.value(for: key, locale: "zh-Hans")
+            XCTAssertNotNil(english, "\(item) missing en subtitle")
+            XCTAssertNotNil(chinese, "\(item) missing zh-Hans subtitle")
+            guard let english, let chinese else { continue }
             XCTAssertFalse(english.isEmpty, "\(item) English subtitle")
             XCTAssertFalse(chinese.isEmpty, "\(item) Chinese subtitle")
             XCTAssertNotEqual(english, chinese, "\(item) en/zh-Hans should differ")

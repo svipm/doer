@@ -194,15 +194,14 @@ extension PostNativeCell {
             actionStackTopToContentConstraint?.isActive = true
         }
 
-        // When like/boost slots are gone, collapse their width so remaining icons sit flush right.
+        // When the like slot is gone, collapse its width so remaining icons sit flush right.
         let showsReact = !reactionPillControl.isHidden
-        let showsBoost = !boostButton.isHidden && boostButton.alpha > 0.01
         if !showsReact {
             reactionPillWidthConstraint?.constant = 0
         }
-        if !showsBoost {
-            boostButton.isHidden = true
-        }
+        // A faded boost slot still occupies its width: configureBoostButton keeps it for
+        // other users' posts so a recycled row that omits can_boost does not shift the
+        // footer. Only own posts hide the button, and only that collapses the slot.
     }
 
     func configureReactionButton(for post: DiscourseTopicDetail.Post) {

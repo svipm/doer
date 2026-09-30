@@ -20,7 +20,7 @@ final class MiniProgramStoreTests: XCTestCase {
             "CDK",
             "NewAPI 签到",
             "LD 士多",
-            "工具箱",
+            "加解密工具箱",
         ])
         XCTAssertEqual(store.program(id: MiniProgramID.ldc)?.urlString, "https://credit.linux.do/home")
         XCTAssertEqual(store.program(id: MiniProgramID.cdk)?.urlString, "https://cdk.linux.do/dashboard")

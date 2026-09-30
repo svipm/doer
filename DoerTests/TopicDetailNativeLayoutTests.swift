@@ -20,7 +20,9 @@ final class TopicDetailNativeLayoutTests: XCTestCase {
     @MainActor
     func testEmptyTableNumberOfRowsDoesNotThrow() {
         let table = UITableView(frame: .zero, style: .plain)
-        XCTAssertEqual(table.numberOfSections, 0)
+        // A table with no data source reports one empty section, so "empty" here
+        // means zero rows — which is what the doer_* helpers must survive.
+        XCTAssertEqual(table.numberOfSections, 1)
         XCTAssertEqual(table.doer_numberOfRows(inSection: 0), 0)
         XCTAssertFalse(table.doer_hasRow(at: IndexPath(row: 0, section: 0)))
         XCTAssertFalse(table.doer_scrollRow(at: IndexPath(row: 0, section: 0), position: .top, animated: false))
@@ -482,7 +484,13 @@ final class TopicDetailNativeLayoutTests: XCTestCase {
 
         XCTAssertFalse(attributed.string.hasPrefix("#"))
         XCTAssertTrue(attributed.string.hasSuffix("公益推广"))
-        XCTAssertNotNil(attributed.attribute(.link, at: 0, effectiveRange: nil))
+        // The chip is prefixed with the tag's icon glyph, which is decoration and
+        // not part of the link; the tag text after it carries the link.
+        let tagRange = (attributed.string as NSString).range(of: "公益推广")
+        XCTAssertNotEqual(tagRange.location, NSNotFound, attributed.string)
+        if tagRange.location != NSNotFound {
+            XCTAssertNotNil(attributed.attribute(.link, at: tagRange.location, effectiveRange: nil))
+        }
         XCTAssertGreaterThan(attributed.length, "公益推广".utf16.count)
     }
 

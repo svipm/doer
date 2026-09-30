@@ -124,7 +124,14 @@ enum ComposerMarkdownCodec {
             if let open = attributes[.composerOpenTag] as? String {
                 pendingOpen = open
             }
-            if let close = attributes[.composerCloseTag] as? String {
+            // A closing tag is recorded on the last character of the paragraph it follows —
+            // that paragraph's terminator — so the paragraph-start attributes miss it.
+            let paragraphTail = attributesAt(
+                attributed,
+                location: paragraphStart + max((paragraph as NSString).length - 1, 0)
+            )
+            if let close = (attributes[.composerCloseTag] as? String)
+                ?? (paragraphTail[.composerCloseTag] as? String) {
                 pendingClose = close
             }
 

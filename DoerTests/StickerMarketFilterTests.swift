@@ -88,7 +88,8 @@ final class StickerMarketFilterTests: XCTestCase {
         store.subscribe("g1")
         XCTAssertEqual(store.subscribedGroupIds(), ["g1"])
 
-        let data = try JSONEncoder().encode(detail)
+        // The store persists the details file as an array.
+        let data = try JSONEncoder().encode([detail])
         try data.write(to: directory.appendingPathComponent("subscribed-details.json"))
         XCTAssertEqual(store.loadPersistedDetails().map(\.id), ["g1"])
         XCTAssertEqual(store.loadPersistedDetails().first?.emojis.count, 1)

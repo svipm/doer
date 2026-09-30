@@ -137,7 +137,9 @@ final class TitleEmojiRendererTests: XCTestCase {
             .cookedHTMLImageURL,
             in: NSRange(location: 0, length: result.length)
         ) { value, _, stop in
-            foundURL = value as? String
+            // Leading runs (the 🔥 text) carry no URL, so keep looking until one does.
+            guard let url = value as? String else { return }
+            foundURL = url
             stop.pointee = true
         }
         XCTAssertEqual(foundURL, "https://linux.do/images/emoji/twitter/rocket.png?v=12")

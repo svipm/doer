@@ -11,8 +11,11 @@ final class EncryptedDnsServiceTests: XCTestCase {
             )
         )
         XCTAssertEqual(spec.url.absoluteString, "https://dns.alidns.com/dns-query")
-        XCTAssertEqual(spec.bootstrapIPs, ["223.5.5.5", "223.6.6.6"])
-        XCTAssertEqual(EncryptedDnsService.bootstrapEndpoints(spec.bootstrapIPs).count, 2)
+        XCTAssertEqual(
+            spec.bootstrapIPs,
+            ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"]
+        )
+        XCTAssertEqual(EncryptedDnsService.bootstrapEndpoints(spec.bootstrapIPs).count, 4)
     }
 
     func testCustomIPURLBootstrapsFromHost() throws {
@@ -73,19 +76,23 @@ final class EncryptedDnsServiceTests: XCTestCase {
         )
     }
 
-    func testEncryptedDNSDropsForeignResolverExtras() throws {
+    func testEncryptedDNSKeepsConfiguredExtrasAndDropsTunnelFakeIP() throws {
         let url = try XCTUnwrap(URL(string: "https://ld.ddd.oaifree.com/query-dns"))
+        // 198.18.10.184 is a Clash/Surge fake-ip. The other three are real resolvers
+        // and stay usable as fallback, in the order they were configured.
         XCTAssertEqual(
-            EncryptedDnsService.usableEncryptedDNSBootstrapIPs(
-                ["198.18.10.184", "119.29.29.29", "104.21.16.56", "172.67.210.33"],
+            EncryptedDnsService.encryptedDNSBootstrapIPs(
+                configured: ["198.18.10.184", "119.29.29.29", "104.21.16.56", "172.67.210.33"],
+                system: [],
                 serverURL: url
             ),
-            ["104.21.16.56", "172.67.210.33", "119.29.29.29"]
+            ["119.29.29.29", "104.21.16.56", "172.67.210.33"]
         )
         let tencent = try XCTUnwrap(URL(string: "https://dns.pub/dns-query"))
         XCTAssertEqual(
-            EncryptedDnsService.usableEncryptedDNSBootstrapIPs(
-                ["119.29.29.29", "119.28.28.28"],
+            EncryptedDnsService.encryptedDNSBootstrapIPs(
+                configured: ["119.29.29.29", "119.28.28.28"],
+                system: [],
                 serverURL: tencent
             ),
             ["119.29.29.29", "119.28.28.28"]

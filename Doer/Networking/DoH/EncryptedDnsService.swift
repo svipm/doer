@@ -137,38 +137,6 @@ nonisolated enum EncryptedDnsService {
         return usableBootstrapIPs(ips)
     }
 
-    /// Encrypted DNS must reach the DoH hostname, not an unrelated recursive
-    /// resolver. `119.29.29.29` is Tencent DNS and is only valid for `dns.pub`.
-    static func usableEncryptedDNSBootstrapIPs(_ ips: [String], serverURL: URL) -> [String] {
-        let inferred = DohServerCatalog.inferredBootstrapIPs(for: serverURL.absoluteString)
-        let host = (serverURL.host ?? "").lowercased()
-        return orderedBootstrapIPs(
-            ips.filter { isUsableEncryptedDNSBootstrapIP($0, host: host, inferred: inferred) },
-            preferIPv6: false
-        )
-    }
-
-    static func isUsableEncryptedDNSBootstrapIP(
-        _ ip: String,
-        host: String,
-        inferred: [String]
-    ) -> Bool {
-        if isTunnelFakeIP(ip) { return false }
-        if inferred.contains(ip) { return true }
-        if host == ip.lowercased() { return true }
-        if isForeignBuiltinResolver(ip, host: host) { return false }
-        return true
-    }
-
-    static func isForeignBuiltinResolver(_ ip: String, host: String) -> Bool {
-        for server in DohServerCatalog.builtIn {
-            let serverHost = URL(string: server.url)?.host?.lowercased()
-            if serverHost == host { continue }
-            if server.bootstrapIPs.contains(ip) { return true }
-        }
-        return false
-    }
-
     /// Live resolver IPs first, IPv4 before IPv6. Hardcoded anycast like
     /// 162.159.36.1 often times out on the same network that can reach .5/.20.
     static func orderedBootstrapIPs(_ ips: [String], preferIPv6: Bool) -> [String] {

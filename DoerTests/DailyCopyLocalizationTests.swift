@@ -74,8 +74,11 @@ final class DailyCopyLocalizationTests: XCTestCase {
 
     private func assertCatalogPair(_ key: String, context: String = "", file: StaticString = #filePath, line: UInt = #line) {
         let label = context.isEmpty ? key : "\(context) \(key)"
-        let english = String(localized: String.LocalizationValue(key), locale: Locale(identifier: "en"))
-        let chinese = String(localized: String.LocalizationValue(key), locale: Locale(identifier: "zh-Hans"))
+        let english = LocalizationCatalog.value(for: key, locale: "en")
+        let chinese = LocalizationCatalog.value(for: key, locale: "zh-Hans")
+        XCTAssertNotNil(english, "\(label) missing en translation", file: file, line: line)
+        XCTAssertNotNil(chinese, "\(label) missing zh-Hans translation", file: file, line: line)
+        guard let english, let chinese else { return }
         XCTAssertFalse(english.isEmpty, "\(label) English", file: file, line: line)
         XCTAssertFalse(chinese.isEmpty, "\(label) Chinese", file: file, line: line)
         XCTAssertNotEqual(english, chinese, "\(label) en/zh-Hans should differ", file: file, line: line)

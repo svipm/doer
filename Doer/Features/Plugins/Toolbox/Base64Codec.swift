@@ -63,7 +63,7 @@ enum Base64Codec {
             normalized += String(repeating: "=", count: 4 - remainder)
         }
 
-        guard let data = Data(base64Encoded: normalized, options: .ignoreUnknownCharacters) else {
+        guard let data = Data(base64Encoded: normalized) else {
             return .failure(.invalidBase64)
         }
         guard let string = String(data: data, encoding: .utf8) else {

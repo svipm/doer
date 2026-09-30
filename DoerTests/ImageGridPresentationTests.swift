@@ -118,7 +118,13 @@ final class ImageGridPresentationTests: XCTestCase {
             delegate: nil
         )
 
-        let host = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 400))
+        // Hosted in a key window: an off-window view does not run the layout pass
+        // that the zero-width-then-grow step below depends on.
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 400))
+        let host = UIView(frame: window.bounds)
+        window.addSubview(host)
+        window.makeKeyAndVisible()
+
         view.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(view)
         let width = view.widthAnchor.constraint(equalToConstant: 0)
@@ -130,7 +136,8 @@ final class ImageGridPresentationTests: XCTestCase {
         host.layoutIfNeeded()
 
         width.constant = 390
-        host.layoutIfNeeded()
+        host.setNeedsLayout()
+        window.layoutIfNeeded()
 
         guard let scrollView = firstScrollView(in: view) else {
             return XCTFail("expected paging scroll view")

@@ -30,7 +30,9 @@ final class HomePullToRefreshPolicyTests: XCTestCase {
                 hasReloadTask: false
             )
         )
-        XCTAssertFalse(
+        // A load that never finished (hung DoH / offline) must stay replaceable, so
+        // neither a pending load nor a live reload task blocks a pull.
+        XCTAssertTrue(
             HomePullToRefreshPolicy.shouldTrigger(
                 pullDistance: 80,
                 isRefreshing: false,
@@ -38,7 +40,7 @@ final class HomePullToRefreshPolicyTests: XCTestCase {
                 hasReloadTask: false
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             HomePullToRefreshPolicy.shouldTrigger(
                 pullDistance: 80,
                 isRefreshing: false,

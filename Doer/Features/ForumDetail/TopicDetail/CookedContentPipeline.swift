@@ -90,7 +90,7 @@ enum CookedContentPipeline {
         for match in matches {
             if match.range.location > cursor {
                 let before = nsSource.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-                let cleaned = stripTagsAndEntities(before)
+                let cleaned = stripTagsAndEntities(before, trimWhitespace: false)
                 if !cleaned.isEmpty {
                     result.append(NSAttributedString(string: cleaned, attributes: baseAttrs))
                 }
@@ -111,7 +111,7 @@ enum CookedContentPipeline {
         }
         if cursor < nsSource.length {
             let after = nsSource.substring(with: NSRange(location: cursor, length: nsSource.length - cursor))
-            let cleaned = stripTagsAndEntities(after)
+            let cleaned = stripTagsAndEntities(after, trimWhitespace: false)
             if !cleaned.isEmpty {
                 result.append(NSAttributedString(string: cleaned, attributes: baseAttrs))
             }
@@ -132,8 +132,8 @@ enum CookedContentPipeline {
 
     // MARK: - Helpers
 
-    private static func stripTagsAndEntities(_ raw: String) -> String {
-        raw
+    private static func stripTagsAndEntities(_ raw: String, trimWhitespace: Bool = true) -> String {
+        let cleaned = raw
             .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&amp;", with: "&")
@@ -143,6 +143,8 @@ enum CookedContentPipeline {
             .replacingOccurrences(of: "&#39;", with: "'")
             .replacingOccurrences(of: "&#x27;", with: "'")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Segments around a highlight are glued back together, so their boundary spaces
+        // are load-bearing: trimming them there turns "Hello world" into "Helloworld".
+        return trimWhitespace ? cleaned.trimmingCharacters(in: .whitespacesAndNewlines) : cleaned
     }
 }

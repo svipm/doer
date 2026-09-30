@@ -204,6 +204,11 @@ enum TopicDetailOpenAnchor: Equatable {
             }
             return .postId(initialPostId)
         }
+        // Floor-only targets: `/t/:id/16`, quoted-post taps, profile reaction floors.
+        // Search and notification hits also carry a post id and returned above.
+        if let initialFloor {
+            return .floor(initialFloor)
+        }
         if lastRead > 1, totalFloors > lastRead {
             return collapseOpeningFloor(.floor(min(lastRead + 1, totalFloors)))
         }
