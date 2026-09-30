@@ -81,7 +81,7 @@ final class CloudflareChallengeMinimizer {
     /// switch tore the old overlay window down). A detached host would freeze
     /// the challenge JS and leave a re-presented sheet without its web view.
     func ensureHostAttached() {
-        guard let host = hostView, host.window == nil, let window = keyWindow() else { return }
+        guard let host = hostView, host.window == nil, let window = Self.keyWindow() else { return }
         window.addSubview(host)
     }
 

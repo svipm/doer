@@ -42,6 +42,7 @@ enum CloudflareVerificationLiveActivity {
     }
 
     private static func endReplacing() {
+        guard #available(iOS 16.2, *) else { return }
         let content = ActivityContent<CloudflareVerificationActivityAttributes.ContentState>(
             state: .init(
                 statusText: String(
