@@ -72,6 +72,7 @@ let project = Project(
                 ]),
                 "Shared/TrustLevelWidgetSnapshot.swift",
                 "Shared/NewAPICheckInActivityAttributes.swift",
+                "Shared/CloudflareVerificationActivityAttributes.swift",
             ],
             resources: .resources([
                 .glob(pattern: "Doer/Assets.xcassets/**"),
@@ -168,6 +169,7 @@ let project = Project(
                 "Extensions/DoerWidget/**",
                 "Shared/TrustLevelWidgetSnapshot.swift",
                 "Shared/NewAPICheckInActivityAttributes.swift",
+                "Shared/CloudflareVerificationActivityAttributes.swift",
             ],
             resources: [
                 "Extensions/DoerWidget/Assets.xcassets",

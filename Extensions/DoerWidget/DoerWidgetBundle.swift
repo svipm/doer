@@ -8,6 +8,7 @@ struct DoerWidgetBundle: WidgetBundle {
         TrustLevelWidget()
         if #available(iOS 16.2, *) {
             NewAPICheckInActivityWidget()
+            CloudflareVerificationActivityWidget()
         }
     }
 }

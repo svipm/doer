@@ -473,6 +473,7 @@ final class CloudflareVerificationViewController: UIViewController {
         detachedWebView.removeFromSuperview()
         CloudflareChallengeMinimizer.shared.minimize(self, webView: detachedWebView)
         startMinimizeTimeout()
+        CloudflareVerificationLiveActivity.start()
         (navigationController ?? self).dismiss(animated: true)
     }
 
@@ -530,6 +531,7 @@ final class CloudflareVerificationViewController: UIViewController {
     private func finishMinimizedChallenge(reportsFailure: Bool) {
         minimizeTimeoutTask?.cancel()
         minimizeTimeoutTask = nil
+        CloudflareVerificationLiveActivity.end(passed: !reportsFailure)
         CloudflareChallengeMinimizer.shared.release(self)
         isMinimizing = false
         isFinishing = true
