@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 final class DiscourseAPI {
     static let cloudflareChallengeDetectedNotification = Notification.Name("DiscourseAPI.cloudflareChallengeDetected")
     static let cloudflareVerificationCompletedNotification = Notification.Name("DiscourseAPI.cloudflareVerificationCompleted")
+    /// The challenge sheet ended without clearance — the blocked action was never
+    /// retried and must not be replayed against a later, unrelated verification.
+    static let cloudflareVerificationAbandonedNotification = Notification.Name("DiscourseAPI.cloudflareVerificationAbandoned")
     static let nativeSessionHealthyNotification = Notification.Name("DiscourseAPI.nativeSessionHealthy")
     static let cloudflareBaseURLUserInfoKey = "baseURL"
     static let cloudflareResponseURLUserInfoKey = "responseURL"

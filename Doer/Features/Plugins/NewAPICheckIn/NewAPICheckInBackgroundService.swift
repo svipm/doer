@@ -52,6 +52,12 @@ final class NewAPICheckInBackgroundService {
                 NewAPICheckInBackgroundService.shared.handle(refreshTask)
             }
         }
+        if !isRegistered {
+            DohDebugLog.record(
+                "check-in background task registration failed id=\(NewAPICheckInBackgroundPolicy.taskIdentifier)",
+                subsystem: "NewAPICheckIn"
+            )
+        }
     }
 
     /// (Re)submits the background request. No-op when the user has not opted
@@ -67,7 +73,16 @@ final class NewAPICheckInBackgroundService {
         request.earliestBeginDate = NewAPICheckInBackgroundPolicy.earliestBeginDate(
             lastRun: Self.lastRunDate
         )
-        try? scheduler.submit(request)
+        do {
+            try scheduler.submit(request)
+        } catch {
+            // Silent failure here means the daily check-in simply never runs, with
+            // no trace to diagnose it from.
+            DohDebugLog.record(
+                "check-in background task schedule failed: \(error.localizedDescription)",
+                subsystem: "NewAPICheckIn"
+            )
+        }
     }
 
     private func handle(_ systemTask: BGAppRefreshTask) {

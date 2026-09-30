@@ -542,8 +542,14 @@ final class CloudflareVerificationViewController: UIViewController {
         verificationCheckTask?.cancel()
         verificationCheckTask = nil
         webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
+        // Success hands this web view to the shared WebViewHTTPClient as its
+        // transport, and that client owns the delegate from then on. Clearing it
+        // here left the shared client without a delegate, so its next navigation
+        // hung until the timeout.
+        if webView.navigationDelegate === self {
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+        }
         if isCookieObserverRegistered {
             webView.configuration.websiteDataStore.httpCookieStore.remove(self)
             isCookieObserverRegistered = false
@@ -788,6 +794,9 @@ final class CloudflareVerificationViewController: UIViewController {
     @MainActor
     private func cancelPendingVerificationWork() async {
         isClosing = true
+        // Every caller of this is a "did not pass" teardown (close, done without
+        // clearance, dismissal), so the mirrored Live Activity must go too.
+        CloudflareVerificationLiveActivity.end(passed: false)
         autoRetryTask?.cancel()
         autoRetryTask = nil
         preparationGeneration += 1
@@ -842,6 +851,9 @@ final class CloudflareVerificationViewController: UIViewController {
             ]
         )
         // A minimized sheet has no presenter to dismiss — release and tear down.
+        // End the mirrored card here too: a challenge re-opened from the shield is
+        // no longer "minimizing", so this is the only place its success is seen.
+        CloudflareVerificationLiveActivity.end(passed: true)
         if isMinimizing {
             finishMinimizedChallenge(reportsFailure: false)
             return
@@ -889,6 +901,19 @@ final class CloudflareVerificationViewController: UIViewController {
     private func notifyFinishIfNeeded() {
         guard !didCallOnFinish else { return }
         didCallOnFinish = true
+        // Ending without clearance means the action that was blocked never got its
+        // retry. Tell the topic screens to drop what they stashed, or it would fire
+        // against a later, unrelated verification.
+        if !didDetectClearance {
+            NotificationCenter.default.post(
+                name: DiscourseAPI.cloudflareVerificationAbandonedNotification,
+                object: nil,
+                userInfo: [
+                    DiscourseAPI.cloudflareBaseURLUserInfoKey:
+                        baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+                ]
+            )
+        }
         onFinish()
     }
 

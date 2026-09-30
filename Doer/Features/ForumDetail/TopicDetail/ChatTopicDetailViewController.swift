@@ -45,6 +45,7 @@ class ChatTopicDetailViewController: ObservableViewController {
 
     private var didLoad = false
     private var cloudflareCompletionObservationToken: NSObjectProtocol?
+    private var cloudflareAbandonmentObservationToken: NSObjectProtocol?
     private var isRecoveringAfterCloudflare = false
     /// Jump scroll that lost the race against a Diffable apply. Retried per
     /// layout pass — a single-shot scroll after `jumpToFloor` otherwise drops
@@ -303,6 +304,9 @@ class ChatTopicDetailViewController: ObservableViewController {
     deinit {
         if let cloudflareCompletionObservationToken {
             NotificationCenter.default.removeObserver(cloudflareCompletionObservationToken)
+        }
+        if let cloudflareAbandonmentObservationToken {
+            NotificationCenter.default.removeObserver(cloudflareAbandonmentObservationToken)
         }
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
@@ -1423,6 +1427,29 @@ class ChatTopicDetailViewController: ObservableViewController {
                 )
             }
         }
+        cloudflareAbandonmentObservationToken = NotificationCenter.default.addObserver(
+            forName: DiscourseAPI.cloudflareVerificationAbandonedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let abandonedBaseURL = notification.userInfo?[DiscourseAPI.cloudflareBaseURLUserInfoKey] as? String
+            Task { @MainActor [weak self] in
+                self?.discardPendingCloudflareRetries(abandonedBaseURL: abandonedBaseURL)
+            }
+        }
+    }
+
+    /// The challenge sheet closed without passing, so the like/bookmark stashed when
+    /// the action was blocked must go with it: replaying it against a later,
+    /// unrelated verification would apply (or, since it toggles, undo) the reaction
+    /// minutes after the user gave up.
+    private func discardPendingCloudflareRetries(abandonedBaseURL: String?) {
+        if let abandonedBaseURL,
+           ForumInstance.normalizedBaseURL(abandonedBaseURL) != ForumInstance.normalizedBaseURL(baseURL) {
+            return
+        }
+        pendingCloudflareActionRetry = nil
+        pendingCloudflareBookmarkRetry = nil
     }
 
     /// Also invoked as a backup from ForumContainer after CF sheet dismiss.

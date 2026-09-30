@@ -108,6 +108,17 @@ final class ReadingSettingsViewController: ObservableViewController {
         return stack
     }()
 
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        // Also pushed from inside a topic (阅读设置 in the post action sheet), where
+        // the forum tab bar must not sit on top of this full-screen page.
+        hidesBottomBarWhenPushed = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         observe(settings)

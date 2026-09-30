@@ -258,6 +258,9 @@ final class CategoryTopicsViewController: ObservableViewController {
         self.category = category
         self.viewModel = CategoryTopicsViewModel(api: api, category: category)
         super.init(nibName: nil, bundle: nil)
+        // Pushed from inside a topic as well as from Home: without this the forum
+        // tab bar reappears on top of this full-screen page.
+        hidesBottomBarWhenPushed = true
         title = viewModel.categoryDisplayName(for: category) ?? category.displayName(parent: nil)
     }
 

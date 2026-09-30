@@ -808,7 +808,13 @@ final class ForumContainerViewController: UIViewController, AuthGating {
             }
             logCloudflareState("shield tapped; re-presenting minimized challenge")
             cloudflareAutoPresentBlockedUntil = nil
-            CloudflareChallengeMinimizer.shared.release(minimized)
+            // Take, don't release: takeForPresentation hands the parked web view
+            // back to the controller. Releasing here dropped the only reference to
+            // that web view, so the re-presented sheet had no live challenge.
+            guard CloudflareChallengeMinimizer.shared.takeForPresentation() === minimized else {
+                logCloudflareState("shield tap ignored: minimized challenge is gone")
+                return
+            }
             minimized.resumeFromMinimization()
             minimized.rebindOnFinish { [weak self] in
                 if let challengeURL = URL(string: challengeBase) {

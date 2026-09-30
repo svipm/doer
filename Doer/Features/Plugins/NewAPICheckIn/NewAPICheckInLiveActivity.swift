@@ -8,6 +8,14 @@ import ActivityKit
 /// when the request cannot start (e.g. background start without entitlement).
 @MainActor
 enum NewAPICheckInLiveActivity {
+    /// How long a card may stay on screen without an update. A batch finishes in
+    /// seconds to a couple of minutes, so anything older is a stranded card from a
+    /// process that was killed mid-run (the system does not remove those for us).
+    private static let staleness: TimeInterval = 10 * 60
+
+    @available(iOS 16.2, *)
+    private static var current: Activity<NewAPICheckInActivityAttributes>?
+
     static var isSupported: Bool {
         if #available(iOS 16.2, *) {
             return ActivityAuthorizationInfo().areActivitiesEnabled
@@ -18,8 +26,10 @@ enum NewAPICheckInLiveActivity {
     static func start(total: Int) {
         guard #available(iOS 16.2, *) else { return }
         guard isSupported, total > 0 else { return }
-        // One batch at a time — end any stale activity from a previous run.
-        end(completed: 0, succeeded: 0, alreadySigned: 0, failed: 0)
+        // Snapshot first: reading `.activities` inside a Task runs after
+        // `Activity.request` returned, so a bare "end everything" pass ended the
+        // activity it had just created — the card froze at 0/N and vanished.
+        let previous = Activity<NewAPICheckInActivityAttributes>.activities
         let attributes = NewAPICheckInActivityAttributes(total: total, startedAt: Date())
         let state = NewAPICheckInActivityAttributes.ContentState(
             completed: 0,
@@ -27,10 +37,18 @@ enum NewAPICheckInLiveActivity {
             alreadySigned: 0,
             failed: 0
         )
-        _ = try? Activity.request(
+        let activity = try? Activity.request(
             attributes: attributes,
-            content: .init(state: state, staleDate: nil)
+            content: .init(state: state, staleDate: Date().addingTimeInterval(staleness))
         )
+        current = activity
+        guard !previous.isEmpty else { return }
+        let currentId = activity?.id
+        Task {
+            for old in previous where old.id != currentId {
+                await old.end(nil, dismissalPolicy: .immediate)
+            }
+        }
     }
 
     static func update(
@@ -49,11 +67,16 @@ enum NewAPICheckInLiveActivity {
                 alreadySigned: alreadySigned,
                 failed: failed
             ),
-            staleDate: nil
+            staleDate: Date().addingTimeInterval(staleness)
         )
+        let tracked = current
         Task {
-            for activity in Activity<NewAPICheckInActivityAttributes>.activities {
-                await activity.update(content)
+            if let tracked {
+                await tracked.update(content)
+            } else {
+                for activity in Activity<NewAPICheckInActivityAttributes>.activities {
+                    await activity.update(content)
+                }
             }
         }
     }
@@ -74,9 +97,29 @@ enum NewAPICheckInLiveActivity {
             ),
             staleDate: nil
         )
+        let tracked = current
+        current = nil
         Task {
-            for activity in Activity<NewAPICheckInActivityAttributes>.activities {
-                await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(20)))
+            if let tracked {
+                await tracked.end(content, dismissalPolicy: .after(Date().addingTimeInterval(20)))
+            } else {
+                for activity in Activity<NewAPICheckInActivityAttributes>.activities {
+                    await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(20)))
+                }
+            }
+        }
+    }
+
+    /// Clear cards left behind by a process that was killed mid-batch. Safe on a
+    /// fresh launch: no batch can be running yet, so anything still listed is stale.
+    static func endStrandedActivities() {
+        guard #available(iOS 16.2, *) else { return }
+        let stranded = Activity<NewAPICheckInActivityAttributes>.activities
+        current = nil
+        guard !stranded.isEmpty else { return }
+        Task {
+            for activity in stranded {
+                await activity.end(nil, dismissalPolicy: .immediate)
             }
         }
     }

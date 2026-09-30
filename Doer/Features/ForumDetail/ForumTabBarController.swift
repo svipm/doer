@@ -11,6 +11,7 @@ final class ForumTabBarController: UITabBarController {
     private var isTabBarHiddenByScroll = false
     private var isAnimatingScrollTabBar = false
     private var scrollTabBarAnimationID = 0
+    private var scrollTabBarAnimationStart: CFTimeInterval = 0
     private var settingsObservationToken: AnyCancellable?
     private var authObservationToken: AnyCancellable?
     private var pluginObservationToken: NSObjectProtocol?
@@ -82,16 +83,21 @@ final class ForumTabBarController: UITabBarController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if isAnimatingScrollTabBar {
-            // Interrupted-animation watchdog. Tapping into a topic while the
-            // bar's scroll show/hide animation is still in flight can drop
-            // its completion, leaving `isAnimatingScrollTabBar` stuck true
-            // with the bar fully visible — which then covers the pushed
-            // detail forever, because this very guard disabled the
-            // reconciler below. In a hides-bottom-bar context any in-flight
-            // scroll animation is already obsolete: drop it and reconcile.
-            if shouldHideTabBarForCurrentContent {
+            // Interrupted-animation watchdog. Tapping into a topic while the bar's
+            // scroll show/hide animation is still in flight can drop its completion,
+            // leaving `isAnimatingScrollTabBar` stuck true — and the guard below then
+            // disabled this reconciler for the rest of the session, with the bar left
+            // mid-transform over the content. In a hides-bottom-bar context any
+            // in-flight scroll animation is already obsolete; otherwise only one that
+            // outlived its own duration counts as dropped.
+            let stale = CACurrentMediaTime() - scrollTabBarAnimationStart > DoerMotion.standard + 0.15
+            if shouldHideTabBarForCurrentContent || stale {
                 scrollTabBarAnimationID += 1
                 isAnimatingScrollTabBar = false
+                // The dropped completion also skipped restoring interaction.
+                if !isTabBarHiddenByScroll {
+                    tabBar.isUserInteractionEnabled = true
+                }
             } else {
                 return
             }
@@ -139,6 +145,7 @@ final class ForumTabBarController: UITabBarController {
 
         let hiddenTransform = CGAffineTransform(translationX: 0, y: tabBarTotalHeight + 8)
         isAnimatingScrollTabBar = true
+        scrollTabBarAnimationStart = CACurrentMediaTime()
         scrollTabBarAnimationID += 1
         let animationID = scrollTabBarAnimationID
 
@@ -177,6 +184,9 @@ final class ForumTabBarController: UITabBarController {
             tabBar.alpha = 1
             tabBar.frame = tabBarFrame(hidden: false)
             tabBar.transform = hiddenTransform
+            // Restore tappability up front: the completion does it too, but a dropped
+            // completion would otherwise leave a visible bar that swallows no taps.
+            tabBar.isUserInteractionEnabled = true
             configureTabBarSurface()
             view.bringSubviewToFront(tabBar)
 
@@ -366,22 +376,27 @@ final class ForumTabBarController: UITabBarController {
     }
 
     private var shouldHideTabBarForCurrentContent: Bool {
+        // topViewController, not visibleViewController: the latter returns a view
+        // controller presented modally on top of the navigation controller, so any
+        // sheet (composer, share, export, timeline) made this report "do not hide"
+        // while a topic was still on screen — the bar reappeared over it, and for a
+        // page sheet nothing re-hid it because the topic never re-appeared.
         guard let navigationController = selectedViewController as? UINavigationController,
-              let visibleViewController = navigationController.visibleViewController
+              let topViewController = navigationController.topViewController
         else {
             return false
         }
-        if let browser = visibleViewController as? InAppBrowserViewController,
+        if let browser = topViewController as? InAppBrowserViewController,
            browser.hidesHostTabBarAtRoot {
             return true
         }
-        guard visibleViewController !== navigationController.viewControllers.first else { return false }
-        return visibleViewController.hidesBottomBarWhenPushed
+        guard topViewController !== navigationController.viewControllers.first else { return false }
+        return topViewController.hidesBottomBarWhenPushed
     }
 
     private var shouldExpandContentForHiddenRootTabBar: Bool {
         guard let navigationController = selectedViewController as? UINavigationController,
-              let browser = navigationController.visibleViewController as? InAppBrowserViewController
+              let browser = navigationController.topViewController as? InAppBrowserViewController
         else { return false }
         return browser.hidesHostTabBarAtRoot
     }

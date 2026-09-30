@@ -205,6 +205,15 @@ actor NewAPICheckInService {
             }
             while let status = await group.next() {
                 summary.record(status)
+                // The background window can close mid-batch (BGAppRefresh gets about
+                // 30 s). Stop feeding new sites and drain the group: URLSession's
+                // data(for:) honours cancellation, so the running children return
+                // promptly and the caller can still call setTaskCompleted instead of
+                // being killed by the watchdog with the batch in flight.
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
                 await NewAPICheckInLiveActivity.update(
                     completed: summary.success + summary.alreadySigned + summary.failed + summary.authenticationExpired,
                     succeeded: summary.success,

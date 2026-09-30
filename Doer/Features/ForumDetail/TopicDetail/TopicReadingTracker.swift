@@ -1,5 +1,27 @@
 import UIKit
 
+/// Whether the current moment still counts as reading time.
+///
+/// Mirrors Discourse's `screen-track`: that service stops accumulating once the
+/// page has been untouched for three minutes (`PAUSE_UNLESS_SCROLLED`) and only
+/// counts time while the session has focus. Without both gates a topic left open
+/// on a stationary screen keeps accruing read time and POSTs a batch every flush
+/// interval with nobody reading it.
+enum TopicReadingCreditPolicy {
+    static let idlePauseInterval: TimeInterval = 3 * 60
+
+    static func shouldCreditTime(
+        mode: ReadingTimingReportMode,
+        now: Date,
+        lastInteraction: Date,
+        isAppActive: Bool
+    ) -> Bool {
+        guard mode != .off else { return false }
+        guard isAppActive else { return false }
+        return now.timeIntervalSince(lastInteraction) <= idlePauseInterval
+    }
+}
+
 final class TopicReadingTracker {
     private let api: DiscourseAPI
     private var topicId: Int?
@@ -9,8 +31,9 @@ final class TopicReadingTracker {
     private var timer: Timer?
     private var lastTickDate: Date?
     private var lastFlushDate = Date()
+    private var lastInteractionDate = Date()
     private var isFlushInFlight = false
-    private var backgroundFlushToken: NSObjectProtocol?
+    private var lifecycleTokens: [NSObjectProtocol] = []
     /// A forced flush arrived while another was in flight; run it once the
     /// current one settles so the pending batch is not stranded.
     private var pendingFollowUpFlush = false
@@ -38,7 +61,8 @@ final class TopicReadingTracker {
         self.topicId = topicId
         lastTickDate = Date()
         lastFlushDate = Date()
-        registerBackgroundFlush()
+        lastInteractionDate = Date()
+        registerLifecycleObservers()
         guard timer == nil else { return }
 
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
@@ -55,30 +79,47 @@ final class TopicReadingTracker {
         timer = nil
         lastTickDate = nil
         visiblePostNumbers.removeAll()
-        unregisterBackgroundFlush()
+        unregisterLifecycleObservers()
         flush(force: true)
     }
 
-    /// Send whatever accumulated when the app leaves the foreground — the
-    /// system may suspend (then kill) the process, and in batched mode the
-    /// pending window can hold up to 30 minutes of reading.
-    private func registerBackgroundFlush() {
-        guard backgroundFlushToken == nil else { return }
-        backgroundFlushToken = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.flush(force: true)
+    /// Leaving the foreground sends whatever accumulated — the system may suspend
+    /// (then kill) the process, and in batched mode the pending window can hold up
+    /// to 30 minutes of reading. Returning to the foreground counts as interaction,
+    /// so reading a long post without scrolling still credits time.
+    private func registerLifecycleObservers() {
+        guard lifecycleTokens.isEmpty else { return }
+        let center = NotificationCenter.default
+        lifecycleTokens.append(
+            center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.flush(force: true)
+                }
             }
-        }
+        )
+        lifecycleTokens.append(
+            center.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.lastInteractionDate = Date()
+                }
+            }
+        )
     }
 
-    private func unregisterBackgroundFlush() {
-        guard let backgroundFlushToken else { return }
-        NotificationCenter.default.removeObserver(backgroundFlushToken)
-        self.backgroundFlushToken = nil
+    private func unregisterLifecycleObservers() {
+        let center = NotificationCenter.default
+        for token in lifecycleTokens {
+            center.removeObserver(token)
+        }
+        lifecycleTokens.removeAll()
     }
 
     func setVisiblePostNumbers(_ postNumbers: Set<Int>) {
@@ -111,19 +152,26 @@ final class TopicReadingTracker {
     }
 
     func scrolled() {
+        lastInteractionDate = Date()
         tick()
     }
 
     private func tick() {
         let mode = AppSettings.shared.readingTimingReportMode
-        // `.off` also skips accumulation entirely — pending stays empty so no
-        // code path can produce a timings POST. Keep the tick clock fresh so
-        // switching back to a reporting mode doesn't compute a stale elapsed.
-        guard mode != .off else {
-            lastTickDate = Date()
+        let now = Date()
+        // `.off` skips accumulation entirely — pending stays empty so no code path
+        // can produce a timings POST. An idle or backgrounded page stops too, so a
+        // topic left open does not report phantom reading. Either way the tick
+        // clock stays fresh so resuming does not compute a stale elapsed.
+        guard TopicReadingCreditPolicy.shouldCreditTime(
+            mode: mode,
+            now: now,
+            lastInteraction: lastInteractionDate,
+            isAppActive: UIApplication.shared.applicationState == .active
+        ) else {
+            lastTickDate = now
             return
         }
-        let now = Date()
         let elapsedMilliseconds: Int
         if let lastTickDate {
             elapsedMilliseconds = min(max(Int(now.timeIntervalSince(lastTickDate) * 1000), 0), 2_000)

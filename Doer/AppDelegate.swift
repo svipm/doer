@@ -21,6 +21,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         BackgroundNotificationRefreshService.shared.scheduleIfNeeded()
         NewAPICheckInBackgroundService.shared.register()
         NewAPICheckInBackgroundService.shared.scheduleNextRun()
+        // Live Activities outlive the process that started them, so a card still
+        // listed at launch belongs to a run that was killed mid-flight.
+        NewAPICheckInLiveActivity.endStrandedActivities()
+        CloudflareVerificationLiveActivity.endStrandedActivities()
         MetricsDiagnosticsService.shared.start()
         UNUserNotificationCenter.current().delegate = self
         APNsPushRegistration.register()

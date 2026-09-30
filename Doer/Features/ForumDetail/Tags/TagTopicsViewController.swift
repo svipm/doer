@@ -199,6 +199,9 @@ final class TagTopicsViewController: ObservableViewController {
         self.tagName = tagName
         self.viewModel = TagTopicsViewModel(api: api, tagName: tagName)
         super.init(nibName: nil, bundle: nil)
+        // Pushed from inside a topic as well as from Home: without this the forum
+        // tab bar reappears on top of this full-screen page.
+        hidesBottomBarWhenPushed = true
         title = tagName
     }
 
