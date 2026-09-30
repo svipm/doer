@@ -58,11 +58,11 @@ jobs:
             exit 1
           fi
           echo "Testing on simulator $DEVICE_ID"
+          # No CODE_SIGNING_ALLOWED=NO here: the simulator installs an
+          # ad-hoc signed bundle, and disabling signing fails the install.
           xcodebuild test \
             -workspace Doer.xcworkspace \
             -scheme DoerTests \
             -destination "id=$DEVICE_ID" \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO
