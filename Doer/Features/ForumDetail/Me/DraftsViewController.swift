@@ -246,13 +246,27 @@ final class DraftsViewController: ObservableViewController {
 
     private func deleteDraft(_ draft: DiscourseDraft, showError: Bool) async {
         do {
-            try await api.deleteDraft(key: draft.draftKey, sequence: draft.sequence)
+            try await deleteDraftRequest(draft)
             ComposerLocalDraftStore.clearSequence(baseURL: api.baseURL, draftKey: draft.draftKey)
             drafts.removeAll { $0.draftKey == draft.draftKey }
             updateState()
         } catch where showError {
             showErrorAlert(error.localizedDescription)
         } catch { }
+    }
+
+    /// Opening a draft bumps the server sequence (close = upsert), so the
+    /// list's snapshot sequence can go stale. Mirror clearServerDraft: fetch
+    /// the current sequence and retry once before surfacing the error.
+    private func deleteDraftRequest(_ draft: DiscourseDraft) async throws {
+        do {
+            try await api.deleteDraft(key: draft.draftKey, sequence: draft.sequence)
+        } catch {
+            guard let current = try? await api.fetchDraft(key: draft.draftKey),
+                  current.sequence != draft.sequence
+            else { throw error }
+            try await api.deleteDraft(key: draft.draftKey, sequence: current.sequence)
+        }
     }
 
     private func open(_ draft: DiscourseDraft) {

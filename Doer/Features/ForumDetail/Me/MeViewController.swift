@@ -612,7 +612,11 @@ final class MeViewController: ObservableViewController {
         quickActionsCard.isUserInteractionEnabled = true
     }
 
-    private func configureBalanceCard(isLoggedIn: Bool) {
+    /// Renders the balance card from cache. Set `triggerRefresh` only from
+    /// user/appear paths: the refresh task's own completion must not re-enter
+    /// here with refresh enabled, or the two calls chain forever (measured as
+    /// a perpetual main-thread loop plus a periodic background user-info hit).
+    private func configureBalanceCard(isLoggedIn: Bool, triggerRefresh: Bool = true) {
         guard isLoggedIn, let username = viewModel.currentUser?.username ?? authGate?.currentUsername() else {
             balanceCard.isHidden = true
             balanceRefreshTask?.cancel()
@@ -655,7 +659,7 @@ final class MeViewController: ObservableViewController {
             )
         }
         balanceCard.configure(rows: rows)
-        if connectingServices.isEmpty {
+        if triggerRefresh, connectingServices.isEmpty {
             refreshBalancesIfNeeded(username: username)
         }
     }
@@ -697,7 +701,7 @@ final class MeViewController: ObservableViewController {
             }
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                self.configureBalanceCard(isLoggedIn: true)
+                self.configureBalanceCard(isLoggedIn: true, triggerRefresh: false)
             }
         }
     }

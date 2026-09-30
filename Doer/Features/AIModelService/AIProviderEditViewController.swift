@@ -271,7 +271,10 @@ final class AIProviderEditViewController: UITableViewController {
                     apiKey: apiKey
                 )
                 // 重新拉取保留已有条目的启用状态与用户编辑过的能力。
-                let existing = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+                // Some gateways return duplicate model ids — uniquing (first
+                // wins) instead of Dictionary(uniqueKeysWithValues:), which is
+                // a fatal crash on re-fetch.
+                let existing = Dictionary(models.map { ($0.id, $0) }, uniquingKeysWith: { current, _ in current })
                 models = fetched.map { model in
                     guard let old = existing[model.id] else { return model }
                     var merged = old.capabilitiesUserEdited ? old : model
