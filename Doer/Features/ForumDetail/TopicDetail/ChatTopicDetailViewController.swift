@@ -433,6 +433,10 @@ class ChatTopicDetailViewController: ObservableViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = canNavigateBack
+        // The classic detail reconciles the tab bar here; without this, a bar
+        // popped back by a CF sheet / modal dismissal race stayed visible over
+        // the topic (nothing else re-hid it in the chat layout).
+        syncOwningTabBarVisibility()
     }
 
     override func viewDidLayoutSubviews() {
@@ -445,6 +449,7 @@ class ChatTopicDetailViewController: ObservableViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = canNavigateBack
+        syncOwningTabBarVisibility()
         readingTracker.start(topicId: topicId)
         updateVisibleReadingPosts()
         if !didLoad {
@@ -1339,6 +1344,36 @@ class ChatTopicDetailViewController: ObservableViewController {
 
 // MARK: - Cloudflare recovery
 
+    /// A post action (like / reaction) that failed with a Cloudflare challenge.
+    /// Re-run once verification completes so the user doesn't have to tap again.
+    private var pendingCloudflareActionRetry: (() async -> Void)?
+
+    nonisolated private static func isCloudflareChallengeError(_ error: Error) -> Bool {
+        (error as? DiscourseAPIError)?.isCloudflareChallenge == true
+    }
+
+    private func stashCloudflareActionRetry(postId: Int, reactionId: String) {
+        pendingCloudflareActionRetry = { [weak self] in
+            await self?.retryToggleReaction(postId: postId, reactionId: reactionId)
+        }
+    }
+
+    private func retryToggleReaction(postId: Int, reactionId: String) async {
+        do {
+            if let response = try await api.toggleReaction(postId: postId, reactionId: reactionId) {
+                viewModel.updatePostReaction(
+                    postId: postId,
+                    reactions: response.reactions,
+                    reactionUsersCount: response.reactionUsersCount,
+                    currentUserReaction: response.currentUserReaction
+                )
+                reloadPostCell(postId: postId)
+            }
+        } catch {
+            showPostActionError(error)
+        }
+    }
+
     private func startObservingCloudflareVerification() {
         guard cloudflareCompletionObservationToken == nil else { return }
         cloudflareCompletionObservationToken = NotificationCenter.default.addObserver(
@@ -1432,6 +1467,12 @@ class ChatTopicDetailViewController: ObservableViewController {
                 if self.viewModel.isReady {
                     self.errorLabel.isHidden = true
                     self.tableView.isHidden = false
+                }
+                // The like / reaction that failed with the challenge now goes
+                // through on its own.
+                if let retry = self.pendingCloudflareActionRetry {
+                    self.pendingCloudflareActionRetry = nil
+                    await retry()
                 }
             }
         }
@@ -1664,6 +1705,9 @@ extension ChatTopicDetailViewController: WeChatChatPostCellDelegate {
                 } catch {
                     self.reloadPostCell(postId: post.id)
                     self.showPostActionError(error)
+                    if Self.isCloudflareChallengeError(error) {
+                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                    }
                 }
             }
         }
@@ -1702,6 +1746,9 @@ extension ChatTopicDetailViewController: WeChatChatPostCellDelegate {
                 } catch {
                     self.reloadPostCell(postId: post.id)
                     self.showPostActionError(error)
+                    if Self.isCloudflareChallengeError(error) {
+                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                    }
                 }
             }
         }
@@ -1815,6 +1862,9 @@ extension ChatTopicDetailViewController: PostCellDelegate {
                 } catch {
                     self.reloadPostCell(postId: post.id)
                     self.showPostActionError(error)
+                    if Self.isCloudflareChallengeError(error) {
+                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                    }
                 }
             }
         }
@@ -1860,6 +1910,9 @@ extension ChatTopicDetailViewController: PostCellDelegate {
                     }
                 } catch {
                     self.showPostActionError(error)
+                    if Self.isCloudflareChallengeError(error) {
+                        self.stashCloudflareActionRetry(postId: post.id, reactionId: reactionId)
+                    }
                 }
             }
         }
