@@ -58,8 +58,8 @@ private final class CategoryTopicsViewModel: DoerObservableObject {
             _ = await categoriesResult
             topics = result.topicList.topics
             canLoadMore = result.topicList.moreTopicsUrl != nil
-            indexUsers
-            currentPage = 0(result.users)
+            indexUsers(result.users)
+            currentPage = 0
             indexCategories(result.categories, source: .topicList)
         } catch {
             if AuthSessionInvalidationPolicy.shouldInvalidateWebSession(error: error, baseURL: api.baseURL) {

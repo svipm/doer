@@ -1468,12 +1468,13 @@ class ChatTopicDetailViewController: ObservableViewController {
                     self.errorLabel.isHidden = true
                     self.tableView.isHidden = false
                 }
-                // The like / reaction that failed with the challenge now goes
-                // through on its own.
-                if let retry = self.pendingCloudflareActionRetry {
-                    self.pendingCloudflareActionRetry = nil
-                    await retry()
-                }
+            }
+            // The like / reaction that failed with the challenge now goes
+            // through on its own. Run it outside MainActor.run — that closure
+            // is synchronous and cannot await.
+            if let retry = self.pendingCloudflareActionRetry {
+                self.pendingCloudflareActionRetry = nil
+                await retry()
             }
         }
     }

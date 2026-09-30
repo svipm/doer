@@ -811,7 +811,9 @@ final class ForumContainerViewController: UIViewController, AuthGating {
             CloudflareChallengeMinimizer.shared.release(minimized)
             minimized.resumeFromMinimization()
             minimized.rebindOnFinish { [weak self] in
-                CloudflareBackgroundVerificationService.shared.endForegroundVerification(baseURL: challengeBase)
+                if let challengeURL = URL(string: challengeBase) {
+                    CloudflareBackgroundVerificationService.shared.endForegroundVerification(baseURL: challengeURL)
+                }
                 self?.handleCloudflareVerificationClosed()
             }
             let nav = UINavigationController(rootViewController: minimized)

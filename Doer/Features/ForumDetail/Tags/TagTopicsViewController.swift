@@ -38,8 +38,8 @@ private final class TagTopicsViewModel: DoerObservableObject {
             let result = try await api.fetchTagTopics(name: tagName, page: 0)
             topics = result.topicList.topics
             canLoadMore = result.topicList.moreTopicsUrl != nil
-            indexUsers
-            currentPage = 0(result.users)
+            indexUsers(result.users)
+            currentPage = 0
         } catch {
             if AuthSessionInvalidationPolicy.shouldInvalidateWebSession(error: error, baseURL: api.baseURL) {
                 clearProtectedContent(invalidateSession: true)
