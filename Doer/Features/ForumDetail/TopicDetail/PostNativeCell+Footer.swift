@@ -199,9 +199,10 @@ extension PostNativeCell {
         if !showsReact {
             reactionPillWidthConstraint?.constant = 0
         }
-        // A faded boost slot still occupies its width: configureBoostButton keeps it for
-        // other users' posts so a recycled row that omits can_boost does not shift the
-        // footer. Only own posts hide the button, and only that collapses the slot.
+        // The boost slot is deliberately left alone: a faded slot still occupies its
+        // width, which is what keeps a recycled row (pagination that omits can_boost)
+        // from shifting the footer. Only own posts hide the button, and that is what
+        // collapses the slot.
     }
 
     func configureReactionButton(for post: DiscourseTopicDetail.Post) {
