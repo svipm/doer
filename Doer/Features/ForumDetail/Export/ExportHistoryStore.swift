@@ -70,11 +70,17 @@ final class ExportHistoryStore {
         records = account?.records.sorted { $0.timestamp > $1.timestamp } ?? []
     }
 
+    /// Bound the history so it cannot grow without limit across exports.
+    private static let maximumRecords = 50
+
     func add(_ record: TopicExportRecord) throws {
         try mutate { account in
             account.records.removeAll { $0.id == record.id }
             account.records.insert(record, at: 0)
             account.records.sort { $0.timestamp > $1.timestamp }
+            if account.records.count > Self.maximumRecords {
+                account.records = Array(account.records.prefix(Self.maximumRecords))
+            }
         }
     }
 

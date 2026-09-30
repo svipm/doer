@@ -453,8 +453,12 @@ final class ChatRoomViewController: ObservableViewController, UITableViewDataSou
         tableView.reloadData()
         chatInputBar.setSending(isSending || isUploadingAttachment)
         chatInputBar.isComposerEnabled = !isSending && !isUploadingAttachment
-        pinsToLatestMessage = true
-        scrollToBottom(animated: false)
+        // Only follow when already pinned: updateUI also runs on any shared
+        // settings change, and force-pinning yanked a user who was reading
+        // history down to the newest message.
+        if pinsToLatestMessage {
+            scrollToBottom(animated: false)
+        }
     }
 
     private func setupLayout() {

@@ -210,7 +210,8 @@ enum AIChatService {
         guard var components = URLComponents(string: "\(host)/models/\(model):generateContent") else {
             throw AIChatServiceError.invalidURL
         }
-        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        // The key travels in the header: a query string would ride along in any
+        // URL log / proxy hop.
         guard let url = components.url else { throw AIChatServiceError.invalidURL }
 
         let contents: [[String: Any]] = messages.map { message in
@@ -222,6 +223,7 @@ enum AIChatService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "systemInstruction": ["parts": [["text": systemPrompt]]],
             "contents": contents,

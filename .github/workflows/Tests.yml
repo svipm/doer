@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Doer/**'
+      - 'DoerTests/**'
+      - 'Shared/**'
+      - 'Packages/**'
+      - 'Project.swift'
+      - '.github/workflows/Tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('.package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Generate Xcode project
+        run: mise x -- tuist install && mise x -- tuist generate --no-open
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          # Pick an available iPhone simulator rather than hard-coding a name —
+          # the installed device set changes with the runner image.
+          DEVICE_ID=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          candidates = []
+          for runtime, devices in data.items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      candidates.append((runtime, device["udid"]))
+          candidates.sort(reverse=True)
+          print(candidates[0][1] if candidates else "")
+          ')
+          if [ -z "$DEVICE_ID" ]; then
+            echo "No available iPhone simulator found" >&2
+            exit 1
+          fi
+          echo "Testing on simulator $DEVICE_ID"
+          xcodebuild test \
+            -workspace Doer.xcworkspace \
+            -scheme DoerTests \
+            -destination "id=$DEVICE_ID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO

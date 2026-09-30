@@ -108,9 +108,10 @@ enum AIProviderAPIService {
         guard var components = URLComponents(string: "\(host)/models") else {
             throw AIProviderAPIError.invalidURL
         }
-        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
         guard let url = components.url else { throw AIProviderAPIError.invalidURL }
-        let json = try await performJSON(URLRequest(url: url))
+        var urlRequest = URLRequest(url: url)
+        urlRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        let json = try await performJSON(urlRequest)
         guard let list = json["models"] as? [[String: Any]] else {
             throw AIProviderAPIError.badPayload
         }
@@ -160,11 +161,11 @@ enum AIProviderAPIService {
                 guard var components = URLComponents(string: "\(host)/models/\(modelID):generateContent") else {
                     throw AIProviderAPIError.invalidURL
                 }
-                components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
                 guard let url = components.url else { throw AIProviderAPIError.invalidURL }
                 request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
                 request.httpBody = try JSONSerialization.data(withJSONObject: [
                     "contents": [["parts": [["text": "hi"]]]],
                     "generationConfig": ["maxOutputTokens": 1],

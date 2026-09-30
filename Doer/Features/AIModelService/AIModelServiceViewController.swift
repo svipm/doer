@@ -269,15 +269,34 @@ final class AIProviderListViewController: UITableViewController {
             title: String(localized: "common.delete", defaultValue: "删除")
         ) { [weak self] _, _, completion in
             guard let self else { completion(false); return }
-            Task {
-                do {
-                    try await self.store.delete(providerID: provider.id)
-                    await self.reload()
-                    completion(true)
-                } catch {
-                    completion(false)
+            // A stray swipe must not wipe the provider and its Keychain key —
+            // the editor has a confirmation for the same action.
+            let alert = UIAlertController(
+                title: String(localized: "ai.service.delete.title", defaultValue: "删除供应商？"),
+                message: String(
+                    localized: "ai.service.delete.help",
+                    defaultValue: "该供应商与其 API Key 将被删除，无法恢复。"
+                ),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel) { _ in
+                completion(false)
+            })
+            alert.addAction(UIAlertAction(
+                title: String(localized: "common.delete", defaultValue: "删除"),
+                style: .destructive
+            ) { _ in
+                Task {
+                    do {
+                        try await self.store.delete(providerID: provider.id)
+                        await self.reload()
+                        completion(true)
+                    } catch {
+                        completion(false)
+                    }
                 }
-            }
+            })
+            self.present(alert, animated: true)
         }
         return UISwipeActionsConfiguration(actions: [delete])
     }

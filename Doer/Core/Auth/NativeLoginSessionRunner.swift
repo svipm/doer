@@ -76,10 +76,25 @@ final class NativeLoginSessionRunner: NSObject, WKScriptMessageHandler, WKNaviga
         }
     }
 
+    /// The JS fetch callback is the only completion path — a stalled request
+    /// used to hang the login forever behind a disabled button (and leak the
+    /// hidden 1x1 web view). Bound each wait and surface a retryable failure.
+    private static let outcomeTimeoutNanoseconds: UInt64 = 30_000_000_000
+
     private func waitForOutcome() async -> Outcome {
-        await withCheckedContinuation { continuation in
+        let timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.outcomeTimeoutNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            self.finish(.failure(String(
+                localized: "native_login.timeout",
+                defaultValue: "登录请求超时，请重试"
+            )))
+        }
+        let outcome = await withCheckedContinuation { continuation in
             self.continuation = continuation
         }
+        timeoutTask.cancel()
+        return outcome
     }
 
     private func finish(_ outcome: Outcome) {
