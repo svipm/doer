@@ -10,6 +10,9 @@
   English | <a href="README.zh-CN.md">中文</a>
 </p>
 
+> [!IMPORTANT]
+> **This project is discontinued and archived.** Linux.do now ships its own official native app, which makes this third-party client redundant. The repository is kept read-only for reference and the releases below remain downloadable. Thanks to everyone who used and improved Doer.
+
 <p align="center">
   <a href="https://github.com/moliango/doer"><img src="https://img.shields.io/badge/GitHub-moliango%2Fdoer-181717?logo=github" alt="GitHub" /></a>
   <img src="https://img.shields.io/badge/iOS-15.0%2B-blue" alt="iOS 15.0+" />

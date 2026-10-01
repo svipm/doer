@@ -10,6 +10,9 @@
   <a href="README.md">English</a> | 中文
 </p>
 
+> [!IMPORTANT]
+> **本项目已停止开发并归档。** Linux.do 官方已推出原生 App，这个第三方客户端没有继续维护的必要了。仓库转为只读存档，历史 Release 仍可下载。感谢每一位使用并改进过 Doer 的朋友。
+
 <p align="center">
   <a href="https://github.com/moliango/doer"><img src="https://img.shields.io/badge/GitHub-moliango%2Fdoer-181717?logo=github" alt="GitHub" /></a>
   <img src="https://img.shields.io/badge/iOS-15.0%2B-blue" alt="iOS 15.0+" />
