@@ -83,6 +83,17 @@ extension AppSettings {
         }
     }
 
+    /// Route linux.do API traffic through the challenge-free `ios.linux.do`
+    /// subdomain the forum admins provide for iOS clients. Webviews, shared links
+    /// and cookie storage keep the canonical host; on for new installs.
+    var forumAPIHostAliasEnabled: Bool {
+        get { bool(forKey: "forumAPIHostAliasEnabled", defaultValue: true) }
+        set {
+            defaults.set(newValue, forKey: "forumAPIHostAliasEnabled")
+            notifyChanged()
+        }
+    }
+
     var dohProvider: DoHProvider {
         get {
             guard defaults.object(forKey: "dohProvider") != nil else { return .dnspod }

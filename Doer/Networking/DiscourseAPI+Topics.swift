@@ -202,7 +202,7 @@ extension DiscourseAPI {
     @discardableResult
     func toggleSharedIssue(topicId: Int) async throws -> DiscourseSharedIssueResponse {
         let route = DiscourseRouter.toggleSharedIssue
-        let url = baseURL + route.path
+        let url = apiURL(route.path)
         let parameters: Parameters = ["topic_id": topicId]
         let response = await session.request(
             url,

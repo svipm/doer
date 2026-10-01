@@ -34,7 +34,7 @@ extension DiscourseAPI {
 
     func deleteBookmark(id: Int) async throws {
         let route = DiscourseRouter.deleteBookmark(id: id)
-        let url = baseURL + route.path
+        let url = apiURL(route.path)
         let response = await session.request(url, method: route.method).serializingData().response
         if let newToken = response.response?.value(forHTTPHeaderField: "X-CSRF-Token") {
             interceptor.updateCSRFToken(newToken)
@@ -53,7 +53,7 @@ extension DiscourseAPI {
 
     func createBoost(postId: Int, raw: String) async throws -> DiscourseTopicDetail.Boost {
         let route = DiscourseRouter.createBoost(postId: postId)
-        let url = baseURL + route.path
+        let url = apiURL(route.path)
         let parameters: Parameters = ["raw": raw]
         let response = await session.request(
             url,
@@ -122,7 +122,7 @@ extension DiscourseAPI {
 
     func flagBoost(boostId: Int, flagTypeId: Int, message: String?) async throws {
         let route = DiscourseRouter.flagBoost(boostId: boostId)
-        let url = baseURL + route.path
+        let url = apiURL(route.path)
         var parameters: Parameters = ["flag_type_id": flagTypeId]
         if let message, !message.isEmpty {
             parameters["message"] = message
@@ -193,7 +193,7 @@ extension DiscourseAPI {
         }
 
         let route = DiscourseRouter.votePoll
-        let url = baseURL + route.path
+        let url = apiURL(route.path)
         let parameters: Parameters = [
             "post_id": postId,
             "poll_name": pollName,
@@ -269,7 +269,7 @@ extension DiscourseAPI {
         guard AppSettings.shared.readingTimingReportMode != .off else {
             return nil
         }
-        let url = baseURL + "/topics/timings"
+        let url = apiURL("/topics/timings")
         guard URL(string: url).map({ discourseRequestHasAuthCredentials(baseURL: baseURL, url: $0) }) == true else {
             return nil
         }
@@ -370,7 +370,7 @@ extension DiscourseAPI {
     }
 
     func markNotificationsRead(parameters: Parameters?) async throws {
-        let url = baseURL + "/notifications/mark-read"
+        let url = apiURL("/notifications/mark-read")
         let response = await session.request(url, method: .put, parameters: parameters, encoding: JSONEncoding.default)
             .serializingData()
             .response

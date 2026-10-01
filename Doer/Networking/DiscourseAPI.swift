@@ -185,6 +185,17 @@ final class DiscourseAPI {
         )
     }
 
+    /// The request URL for a forum API path: the challenge-free alias host when
+    /// available and enabled, else the canonical base. Cookie handling keeps using
+    /// the canonical host regardless (see DiscourseAuthInterceptor).
+    func apiURL(_ path: String) -> String {
+        ForumAPIHostAlias.apiRequestURL(
+            base: baseURL,
+            path: path,
+            enabled: AppSettings.shared.forumAPIHostAliasEnabled
+        ) ?? (baseURL + path)
+    }
+
     func performRequest(
         route: DiscourseRouter,
         parameters: Parameters? = nil,
@@ -192,7 +203,15 @@ final class DiscourseAPI {
         encoding requestedEncoding: ParameterEncoding? = nil,
         allowAuthRecovery: Bool = true
     ) async throws -> RawDiscourseResponse {
-        let url = baseURL + route.path
+        // linux.do's admins provide a challenge-free subdomain for iOS API
+        // traffic. Only the request URL moves: webviews, shared links and the
+        // cookie jar stay on the canonical host.
+        let aliasURL = ForumAPIHostAlias.apiRequestURL(
+            base: baseURL,
+            path: route.path,
+            enabled: AppSettings.shared.forumAPIHostAliasEnabled
+        )
+        let url = aliasURL ?? (baseURL + route.path)
         if executionContext.allowsInteractiveWebRecovery,
            Self.isCloudflareForegroundGateActive(baseURL: baseURL) {
             DohDebugLog.record(
@@ -202,7 +221,9 @@ final class DiscourseAPI {
             throw Self.cloudflareChallengeError()
         }
         let encoding = requestedEncoding ?? (route.method == .post ? JSONEncoding.default : URLEncoding.default)
-        if LocalConnectProxy.usesWebViewHTTPTransport, let base = URL(string: baseURL) {
+        // The webview transport exists to look like a browser to Cloudflare and its
+        // cookie sync is keyed to the canonical host — pointless on the alias host.
+        if aliasURL == nil, LocalConnectProxy.usesWebViewHTTPTransport, let base = URL(string: baseURL) {
             do {
                 DohDebugLog.record(
                     "request \(route.method.rawValue) \(route.path) via Safari WKWebView",
@@ -228,9 +249,24 @@ final class DiscourseAPI {
                 }
             }
         }
-        let response = await session.request(url, method: route.method, parameters: parameters, encoding: encoding, headers: headers)
-            .serializingData(emptyResponseCodes: [200, 201, 202, 204, 205])
-            .response
+
+        func send(to requestURL: String) async -> AFDataResponse<Data> {
+            await session.request(requestURL, method: route.method, parameters: parameters, encoding: encoding, headers: headers)
+                .serializingData(emptyResponseCodes: [200, 201, 202, 204, 205])
+                .response
+        }
+        var response = await send(to: url)
+        if aliasURL != nil,
+           case .sessionTaskFailed(let underlying) = response.error,
+           ForumAPIHostAlias.isUnreachableTransportError(underlying) {
+            // The alias host could not be reached at all (DNS / connect); the
+            // canonical host is the proven path, so fall back once.
+            DohDebugLog.record(
+                "api host alias unreachable; retrying on canonical host route=\(route.path)",
+                subsystem: "CF"
+            )
+            response = await send(to: baseURL + route.path)
+        }
 
         #if DEBUG
         if let data = response.data, let body = String(data: data, encoding: .utf8) {
@@ -268,16 +304,20 @@ final class DiscourseAPI {
             )
         }
 
-        if let httpResponse = response.response, let url = httpResponse.url,
-           shouldMergeWebCookieResponseHeaders(
-            baseURL: baseURL,
-            responseURL: url,
-            statusCode: httpResponse.statusCode
-           ) {
-            mergeWebCookiesAndMaybeRefreshSession(
-                headers: httpResponse.allHeaderFields,
-                responseURL: url
-            )
+        if let httpResponse = response.response, let responseURL = httpResponse.url {
+            // Cookies arriving from the alias host are stored under the canonical
+            // host, where the webview, the session refresher and the jar expect them.
+            let canonicalResponseURL = ForumAPIHostAlias.canonicalized(responseURL)
+            if shouldMergeWebCookieResponseHeaders(
+                baseURL: baseURL,
+                responseURL: canonicalResponseURL,
+                statusCode: httpResponse.statusCode
+            ) {
+                mergeWebCookiesAndMaybeRefreshSession(
+                    headers: httpResponse.allHeaderFields,
+                    responseURL: canonicalResponseURL
+                )
+            }
         }
 
         if let statusCode = response.response?.statusCode, !(200 ..< 300).contains(statusCode) {

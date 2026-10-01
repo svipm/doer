@@ -132,10 +132,13 @@ final class DiscourseAuthInterceptor: RequestInterceptor {
     func adapt(_ urlRequest: URLRequest, for session: Session, completion: @escaping (Result<URLRequest, Error>) -> Void) {
         var request = urlRequest
         if let url = request.url {
-            let authMode = discourseRequestAuthMode(baseURL: baseURL, url: url)
+            // Alias-hosted requests (ios.linux.do) authenticate with the canonical
+            // host's cookies: the session cookie is host-only for linux.do.
+            let cookieURL = ForumAPIHostAlias.canonicalized(url)
+            let authMode = discourseRequestAuthMode(baseURL: baseURL, url: cookieURL)
             switch authMode {
             case .webCookie:
-                applyWebCookieHeaders(to: &request, url: url)
+                applyWebCookieHeaders(to: &request, url: cookieURL)
                 logAuthMode(authMode, url: url, request: request)
                 if isMutating(request) {
                     request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -151,7 +154,7 @@ final class DiscourseAuthInterceptor: RequestInterceptor {
                     return
                 }
             case .cloudflareOnly:
-                applyCloudflareCookieHeaders(to: &request, url: url)
+                applyCloudflareCookieHeaders(to: &request, url: cookieURL)
                 logAuthMode(authMode, url: url, request: request)
             case .none:
                 logAuthMode(authMode, url: url, request: request)
@@ -169,7 +172,7 @@ final class DiscourseAuthInterceptor: RequestInterceptor {
               let httpMethod = request.request?.httpMethod,
               (httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "DELETE"),
               let url = request.request?.url,
-              discourseRequestAuthMode(baseURL: baseURL, url: url) == .webCookie
+              discourseRequestAuthMode(baseURL: baseURL, url: ForumAPIHostAlias.canonicalized(url)) == .webCookie
         else {
             completion(.doNotRetry)
             return
@@ -293,13 +296,21 @@ final class DiscourseAuthInterceptor: RequestInterceptor {
     }
 
     func fetchCSRFToken(session: Session, completion: @escaping (String?) -> Void) {
-        guard let url = URL(string: "\(baseURL)/session/csrf.json") else {
+        let urlString = ForumAPIHostAlias.apiRequestURL(
+            base: baseURL,
+            path: "/session/csrf.json",
+            enabled: AppSettings.shared.forumAPIHostAliasEnabled
+        ) ?? "\(baseURL)/session/csrf.json"
+        guard let url = URL(string: urlString) else {
             completion(nil)
             return
         }
+        // The session cookie is host-only for the canonical host, so the header is
+        // built from there even when the request goes to the alias host.
+        let cookieURL = ForumAPIHostAlias.canonicalized(url)
         var req = URLRequest(url: url)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let cookieHeader = WebCookieStore.shared.cookieHeader(for: url)
+        let cookieHeader = WebCookieStore.shared.cookieHeader(for: cookieURL)
         if !cookieHeader.isEmpty { req.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
         if let ua = WebCookieStore.shared.userAgent { req.setValue(ua, forHTTPHeaderField: "User-Agent") }
         session.request(req).responseData { response in
