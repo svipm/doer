@@ -41,7 +41,13 @@ jobs:
       - name: Read version
         id: version
         run: |
-          VERSION=$(grep -o '"MARKETING_VERSION": "[^"]*"' Project.swift | grep -o '"[^"]*"$' | tr -d '"')
+          # All three targets carry MARKETING_VERSION, so collapse to the single
+          # distinct value — an un-deduplicated grep made TAG a multi-line string.
+          VERSION=$(grep -o '"MARKETING_VERSION": "[^"]*"' Project.swift | grep -o '"[^"]*"$' | tr -d '"' | sort -u)
+          if [ "$(printf '%s\n' "$VERSION" | wc -l | tr -d ' ')" != "1" ] || [ -z "$VERSION" ]; then
+            echo "Expected one distinct MARKETING_VERSION, got: $VERSION" >&2
+            exit 1
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - name: Create tag and Release
         env:
