@@ -189,11 +189,8 @@ final class DiscourseAPI {
     /// available and enabled, else the canonical base. Cookie handling keeps using
     /// the canonical host regardless (see DiscourseAuthInterceptor).
     func apiURL(_ path: String) -> String {
-        ForumAPIHostAlias.apiRequestURL(
-            base: baseURL,
-            path: path,
-            enabled: AppSettings.shared.forumAPIHostAliasEnabled
-        ) ?? (baseURL + path)
+        ForumAPIHostAlias.apiRequestURL(base: baseURL, path: path)
+            ?? (baseURL + path)
     }
 
     func performRequest(
@@ -206,11 +203,7 @@ final class DiscourseAPI {
         // linux.do's admins provide a challenge-free subdomain for iOS API
         // traffic. Only the request URL moves: webviews, shared links and the
         // cookie jar stay on the canonical host.
-        let aliasURL = ForumAPIHostAlias.apiRequestURL(
-            base: baseURL,
-            path: route.path,
-            enabled: AppSettings.shared.forumAPIHostAliasEnabled
-        )
+        let aliasURL = ForumAPIHostAlias.apiRequestURL(base: baseURL, path: route.path)
         let url = aliasURL ?? (baseURL + route.path)
         if executionContext.allowsInteractiveWebRecovery,
            Self.isCloudflareForegroundGateActive(baseURL: baseURL) {

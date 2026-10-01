@@ -296,11 +296,8 @@ final class DiscourseAuthInterceptor: RequestInterceptor {
     }
 
     func fetchCSRFToken(session: Session, completion: @escaping (String?) -> Void) {
-        let urlString = ForumAPIHostAlias.apiRequestURL(
-            base: baseURL,
-            path: "/session/csrf.json",
-            enabled: AppSettings.shared.forumAPIHostAliasEnabled
-        ) ?? "\(baseURL)/session/csrf.json"
+        let urlString = ForumAPIHostAlias.apiRequestURL(base: baseURL, path: "/session/csrf.json")
+            ?? "\(baseURL)/session/csrf.json"
         guard let url = URL(string: urlString) else {
             completion(nil)
             return

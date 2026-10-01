@@ -8,9 +8,25 @@ import Foundation
 /// The session cookie (`_t`) is host-only for `linux.do`, so cookie lookups and
 /// response-cookie storage must keep using the canonical host — see
 /// `canonicalized(_:)` and the auth interceptor.
-enum ForumAPIHostAlias {
+nonisolated enum ForumAPIHostAlias {
     static let canonicalHost = "linux.do"
     static let aliasHost = "ios.linux.do"
+    private static let enabledKey = "forumAPIHostAliasEnabled"
+
+    /// Read straight from UserDefaults: the auth interceptor runs on Alamofire's
+    /// queues, outside the app's MainActor default isolation, so it cannot go
+    /// through AppSettings. Unset means on.
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: enabledKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: enabledKey)
+    }
+
+    /// The alias URL for a forum API request, or nil when the request should keep
+    /// the canonical base: other forums, non-HTTPS bases, or the alias switched off.
+    static func apiRequestURL(base: String, path: String) -> String? {
+        apiRequestURL(base: base, path: path, enabled: isEnabled)
+    }
 
     /// The alias URL for a forum API request, or nil when the request should keep
     /// the canonical base: other forums, non-HTTPS bases, or the alias switched off.
