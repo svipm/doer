@@ -15,7 +15,7 @@ extension DiscourseAPI {
 
     func toggleReaction(postId: Int, reactionId: String) async throws -> DiscourseReactionToggleResponse? {
         let route = DiscourseRouter.toggleReaction(postId: postId, reactionId: reactionId)
-        let url = apiURL(route.path)
+        let url = baseURL + route.path
         let response = await session.request(url, method: route.method).serializingData().response
         if let newToken = response.response?.value(forHTTPHeaderField: "X-CSRF-Token") {
             interceptor.updateCSRFToken(newToken)
@@ -216,7 +216,7 @@ extension DiscourseAPI {
     }
 
     func deleteSession(username: String) async {
-        let url = apiURL("/session/\(username)")
+        let url = baseURL + "/session/\(username)"
         _ = await session.request(url, method: .delete).serializingData().response
     }
 }

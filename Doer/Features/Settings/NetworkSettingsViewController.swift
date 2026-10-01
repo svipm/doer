@@ -23,7 +23,6 @@ final class NetworkSettingsViewController: ObservableViewController {
     }()
 
     private let dohToggleRow = ReadingToggleRowView()
-    private let apiHostToggleRow = ReadingToggleRowView()
     private let statusRow = DataManagementActionRowView()
     private let testRow = DataManagementActionRowView()
     private let moreRow = DataManagementActionRowView()
@@ -57,12 +56,6 @@ final class NetworkSettingsViewController: ObservableViewController {
             guard let self else { return }
             settings.dohEnabled = isOn
             LightweightDohProxyService.shared.configureFromSettings()
-            refreshDataViews()
-        }
-        apiHostToggleRow.onValueChanged = { [weak self] isOn in
-            guard let self else { return }
-            settings.forumAPIHostAliasEnabled = isOn
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             refreshDataViews()
         }
         cloudflareRow.addTarget(self, action: #selector(openCloudflare), for: .touchUpInside)
@@ -108,7 +101,7 @@ final class NetworkSettingsViewController: ObservableViewController {
             body: dohStack
         ))
 
-        let auxStack = UIStackView(arrangedSubviews: [apiHostToggleRow, cloudflareRow, healthRow, avatarLoadingCard])
+        let auxStack = UIStackView(arrangedSubviews: [cloudflareRow, healthRow, avatarLoadingCard])
         auxStack.axis = .vertical
         auxStack.spacing = 12
         contentStack.addArrangedSubview(makeSection(
@@ -198,17 +191,6 @@ final class NetworkSettingsViewController: ObservableViewController {
 
         let hasClearance = URL(string: ForumInstance.linuxDoBaseURL)
             .map { WebCookieStore.shared.hasCookie(named: "cf_clearance", for: $0) } ?? false
-        apiHostToggleRow.configure(
-            title: String(localized: "settings.network.api_host_alias", defaultValue: "免盾接口域名"),
-            subtitle: String(
-                localized: "settings.network.api_host_alias.subtitle",
-                defaultValue: "API 请求走 ios.linux.do（官方为 iOS 客户端提供的免验证子域名），网页与链接仍用主域"
-            ),
-            symbolName: "antenna.radiowaves.left.and.right",
-            isOn: settings.forumAPIHostAliasEnabled,
-            accentColor: accent,
-            backgroundColor: card
-        )
         cloudflareRow.configure(
             title: String(localized: "settings.network.cloudflare_verify"),
             subtitle: hasClearance

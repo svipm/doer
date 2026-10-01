@@ -92,8 +92,7 @@ extension DiscourseAPI {
 
     func uploadComposerFile(fileURL: URL, filename: String? = nil) async throws -> DiscourseUploadResponse {
         let route = DiscourseRouter.upload(clientId: composerUploadClientId)
-        let url = ForumAPIHostAlias.apiRequestURL(base: baseURL, path: route.path)
-            ?? (baseURL + route.path)
+        let url = baseURL + route.path
         let fileName = filename ?? fileURL.lastPathComponent
         let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
             ?? "application/octet-stream"

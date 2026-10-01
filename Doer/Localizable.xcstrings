@@ -1,62 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "settings.network.api_host_alias" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shield-free API host"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免盾接口域名"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免盾介面網域"
-          }
-        },
-        "zh-HK" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免盾介面網域"
-          }
-        }
-      }
-    },
-    "settings.network.api_host_alias.subtitle" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Send API requests to ios.linux.do, the challenge-free subdomain the forum provides for iOS clients. Web views and links stay on linux.do."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API 请求走 ios.linux.do（官方为 iOS 客户端提供的免验证子域名），网页与链接仍用主域"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API 請求走 ios.linux.do（官方為 iOS 用戶端提供的免驗證子網域），網頁與連結仍用主域"
-          }
-        },
-        "zh-HK" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API 請求走 ios.linux.do（官方為 iOS 用戶端提供的免驗證子網域），網頁與連結仍用主域"
-          }
-        }
-      }
-    },
     "%@  ·  %@" : {
       "localizations" : {
         "en" : {
