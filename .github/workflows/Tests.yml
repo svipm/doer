@@ -66,3 +66,14 @@ jobs:
             -destination "id=$DEVICE_ID" \
             -derivedDataPath build \
             COMPILER_INDEX_STORE_ENABLE=NO
+
+      # A launch-time crash ("signal trap before establishing connection") leaves
+      # no test failures and no log trail; the xcresult carries the crash report.
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: build/Logs/Test
+          if-no-files-found: ignore
+          retention-days: 7
